@@ -1,4 +1,5 @@
 import dashboardsNavigationConfig from './dashboards.navigation.config'
+import conceptsNavigationConfig from './concepts.navigation.config'
 import {
     NAV_ITEM_TYPE_TITLE,
     NAV_ITEM_TYPE_ITEM,
@@ -9,6 +10,69 @@ import type { NavigationTree } from '@/@types/navigation'
 
 const navigationConfig: NavigationTree[] = [
 	...dashboardsNavigationConfig,
+	...conceptsNavigationConfig,
+	/*{
+        key: 'groupMenu',
+        path: '',
+        title: 'User',
+        translateKey: 'nav.groupMenu.groupMenu',
+        icon: 'groupMenu',
+        type: NAV_ITEM_TYPE_TITLE,
+        authority: [],
+        subMenu: [            
+            {
+                key: 'groupMenu.collapse',
+                path: '',
+                title: 'My Account',
+                translateKey: 'nav.groupMenu.collapse.collapse',
+                icon: 'groupCollapseMenu',
+                type: NAV_ITEM_TYPE_COLLAPSE,
+                authority: [],
+                subMenu: [
+                    {
+                        key: 'groupMenu.collapse.item1',
+                        path: '/group-collapse-menu-item-view-1',
+                        title: 'Settings',
+                        translateKey: 'nav.groupMenu.collapse.item1',
+                        icon: '',
+                        type: NAV_ITEM_TYPE_ITEM,
+                        authority: [],
+                        subMenu: [],
+                    },
+                    {
+                        key: 'groupMenu.collapse.item2',
+                        path: '/group-collapse-menu-item-view-2',
+                        title: 'Activity Log',
+                        translateKey: 'nav.groupMenu.collapse.item2',
+                        icon: '',
+                        type: NAV_ITEM_TYPE_ITEM,
+                        authority: [],
+                        subMenu: [],
+                    },
+                    {
+                        key: 'groupMenu.collapse.item2',
+                        path: '/group-collapse-menu-item-view-2',
+                        title: 'Roles & Permissions',
+                        translateKey: 'nav.groupMenu.collapse.item2',
+                        icon: '',
+                        type: NAV_ITEM_TYPE_ITEM,
+                        authority: [],
+                        subMenu: [],
+                    },
+                    {
+                        key: 'groupMenu.collapse.item2',
+                        path: '/group-collapse-menu-item-view-2',
+                        title: 'API Keys',
+                        translateKey: 'nav.groupMenu.collapse.item2',
+                        icon: '',
+                        type: NAV_ITEM_TYPE_ITEM,
+                        authority: [],
+                        subMenu: [],
+                    },
+                ],
+            },            
+        ],
+    },*/
 	/** Example purpose only, please remove 
     {
         key: 'home',

@@ -23,10 +23,10 @@ const dashboardsNavigationConfig: NavigationTree[] = [
         subMenu: [
             {
                 key: 'dashboard.overview',
-                path: `${DASHBOARDS_PREFIX_PATH}/Overview`,
+                path: `${DASHBOARDS_PREFIX_PATH}/overview`,
                 title: 'Overview',
                 translateKey: 'nav.dashboard.overview',
-                icon: 'home',
+                icon: 'dashboardEcommerce',
                 type: NAV_ITEM_TYPE_ITEM,
                 authority: [ADMIN, USER],
                 subMenu: [],

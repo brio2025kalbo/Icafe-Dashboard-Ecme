@@ -26,7 +26,7 @@ const dashboardsNavigationConfig: NavigationTree[] = [
                 path: `${DASHBOARDS_PREFIX_PATH}/overview`,
                 title: 'Overview',
                 translateKey: 'nav.dashboard.overview',
-                icon: 'home',
+                icon: 'dataDisplay',
                 type: NAV_ITEM_TYPE_ITEM,
                 authority: [ADMIN, USER],
                 subMenu: [],

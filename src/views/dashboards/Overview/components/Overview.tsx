@@ -127,7 +127,7 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     }}
                 />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
                 <StatisticCard
                     title="Total profit"
                     value={
@@ -147,7 +147,24 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     onClick={setSelectedCategory}
                 />
                 <StatisticCard
-                    title="Total order"
+                    title="Top-ups"
+                    value={
+                        <NumericFormat
+                            displayType="text"
+                            value={data.totalOrder[selectedPeriod].value}
+                            thousandSeparator={true}
+                        />
+                    }
+                    growShrink={data.totalOrder[selectedPeriod].growShrink}
+                    iconClass="bg-emerald-200"
+                    icon={<TbShoppingBagCheck />}
+                    label="totalOrder"
+                    active={selectedCategory === 'totalOrder'}
+                    compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
+                    onClick={setSelectedCategory}
+                />
+                <StatisticCard
+                    title="F&B Sales"
                     value={
                         <NumericFormat
                             displayType="text"
