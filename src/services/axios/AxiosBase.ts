@@ -4,9 +4,17 @@ import AxiosRequestIntrceptorConfigCallback from './AxiosRequestIntrceptorConfig
 import appConfig from '@/configs/app.config'
 import type { AxiosError } from 'axios'
 
+// In development the Vite dev server proxies /api/* to VITE_API_URL.
+// In a production build there is no proxy, so we use VITE_API_URL directly as
+// the base URL and keep the /api prefix from app.config.apiPrefix.
+const baseURL =
+    import.meta.env.PROD && import.meta.env.VITE_API_URL
+        ? `${import.meta.env.VITE_API_URL}${appConfig.apiPrefix}`
+        : appConfig.apiPrefix
+
 const AxiosBase = axios.create({
     timeout: 60000,
-    baseURL: appConfig.apiPrefix,
+    baseURL,
 })
 
 AxiosBase.interceptors.request.use(

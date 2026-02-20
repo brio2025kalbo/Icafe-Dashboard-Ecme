@@ -14,7 +14,7 @@ const appConfig: AppConfig = {
     unAuthenticatedEntryPath: '/sign-in',
     locale: 'en',
     accessTokenPersistStrategy: 'localStorage',
-    enableMock: true,
+    enableMock: import.meta.env.VITE_ENABLE_MOCK !== 'false',
     activeNavTranslation: false,
 }
 

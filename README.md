@@ -31,6 +31,86 @@ npm run format     # Run Prettier + ESLint fix
 
 ---
 
+## Backend Integration
+
+The frontend communicates with your backend through a thin Axios layer in
+`src/services/`.  By default the app runs entirely with **mock data** so you
+can develop the UI without a real backend.
+
+### 1. Configure environment variables
+
+Copy the example file and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Description | Default |
+|---|---|---|
+| `VITE_API_URL` | Full URL of your backend API | `http://localhost:3000` |
+| `VITE_ENABLE_MOCK` | `"true"` – use mock data; `"false"` – hit real backend | `"true"` |
+| `VITE_FIREBASE_*` | Firebase credentials (only needed for OAuth sign-in) | *(empty)* |
+
+### 2. Disable mock data
+
+Set `VITE_ENABLE_MOCK=false` in `.env` and restart the dev server.  The Vite
+dev server will proxy all `/api/*` requests to `VITE_API_URL`, so your backend
+can remain on a different port with no CORS configuration required during
+development.
+
+### 3. Expected API contract
+
+The frontend expects the following endpoints.  Every request that requires
+authentication sends an `Authorization: Bearer <token>` header.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/sign-in` | Sign in — returns `{ token, user }` |
+| `POST` | `/api/sign-up` | Register — returns `{ token, user }` |
+| `POST` | `/api/sign-out` | Sign out |
+| `POST` | `/api/forgot-password` | Request password reset e-mail |
+| `POST` | `/api/reset-password` | Apply new password |
+| `GET` | `/api/dashboard/ecommerce` | Overview dashboard data |
+| `GET` | `/api/dashboard/project` | Project dashboard data |
+| `GET` | `/api/dashboard/analytic` | Analytic dashboard data |
+| `GET` | `/api/dashboard/marketing` | Marketing dashboard data |
+
+See `src/services/` for the full list of service files and the endpoint they
+call.  The mock responses in `src/mock/fakeApi/` show the exact JSON shape
+expected from each endpoint.
+
+### 4. Authentication response shape
+
+`POST /api/sign-in` and `POST /api/sign-up` must return:
+
+```json
+{
+  "token": "<jwt-or-opaque-token>",
+  "user": {
+    "userId": "1",
+    "userName": "Alice",
+    "email": "alice@example.com",
+    "avatar": "/img/avatars/thumb-1.jpg",
+    "authority": ["admin", "user"]
+  }
+}
+```
+
+The token is stored in `localStorage` (key `token`) and sent with every
+subsequent request as `Authorization: Bearer <token>`.
+
+### 5. Production deployment
+
+In a production build there is no Vite proxy.  Set `VITE_API_URL` to the full
+public URL of your API server (e.g. `https://api.yourapp.com`) and the Axios
+client will prefix every request with that URL automatically.
+
+```bash
+VITE_API_URL=https://api.yourapp.com VITE_ENABLE_MOCK=false npm run build
+```
+
+---
+
 ## Folder Structure
 
 ```
