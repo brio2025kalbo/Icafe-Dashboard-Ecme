@@ -289,6 +289,138 @@ export type IcafeReport = {
     rows: Record<string, unknown>[]
 }
 
+// ─── Staff ───────────────────────────────────────────────────────────────────
+
+export type IcafeStaffRole = 'admin' | 'manager' | 'cashier'
+export type IcafeStaffStatus = 'active' | 'inactive'
+
+export type IcafeStaff = {
+    id: number
+    username: string
+    name: string
+    email: string
+    phone: string
+    role: IcafeStaffRole
+    status: IcafeStaffStatus
+    lastLogin: string | null
+    createdAt: string
+}
+
+export type IcafeCreateStaffRequest = {
+    username: string
+    password: string
+    name: string
+    role: IcafeStaffRole
+    email?: string
+    phone?: string
+}
+
+export type IcafeUpdateStaffRequest = {
+    staff_id: number
+    name?: string
+    role?: IcafeStaffRole
+    email?: string
+    phone?: string
+    status?: IcafeStaffStatus
+}
+
+// ─── Billing Logs ─────────────────────────────────────────────────────────────
+
+export type IcafeBillingLogType =
+    | 'topup'
+    | 'checkout'
+    | 'deduction'
+    | 'package'
+    | 'adjustment'
+
+export type IcafeBillingLog = {
+    id: number
+    type: IcafeBillingLogType
+    memberId: number | null
+    memberName: string | null
+    staffId: number | null
+    staffName: string | null
+    pcId: number | null
+    pcName: string | null
+    amount: number
+    balanceBefore: number
+    balanceAfter: number
+    note: string
+    createdAt: string
+}
+
+export type IcafeBillingLogParams = {
+    startDate?: string
+    endDate?: string
+    memberId?: number
+    staffId?: number
+    type?: IcafeBillingLogType
+    page?: number
+    limit?: number
+}
+
+export type IcafeBillingLogListResponse = {
+    total: number
+    page: number
+    limit: number
+    items: IcafeBillingLog[]
+}
+
+// ─── Transactions ─────────────────────────────────────────────────────────────
+
+export type IcafeTransactionType = 'credit' | 'debit'
+
+export type IcafeTransaction = {
+    id: number
+    type: IcafeTransactionType
+    referenceId: string
+    memberId: number | null
+    memberName: string | null
+    amount: number
+    description: string
+    createdAt: string
+}
+
+export type IcafeTransactionParams = {
+    startDate?: string
+    endDate?: string
+    memberId?: number
+    type?: IcafeTransactionType
+    page?: number
+    limit?: number
+}
+
+export type IcafeTransactionListResponse = {
+    total: number
+    page: number
+    limit: number
+    items: IcafeTransaction[]
+}
+
+// ─── Receipts ─────────────────────────────────────────────────────────────────
+
+export type IcafeReceiptItem = {
+    description: string
+    quantity: number
+    unitPrice: number
+    subtotal: number
+}
+
+export type IcafeReceipt = {
+    id: string
+    memberId: number | null
+    memberName: string | null
+    staffId: number | null
+    staffName: string | null
+    pcId: number | null
+    pcName: string | null
+    items: IcafeReceiptItem[]
+    totalAmount: number
+    discount: number
+    amountPaid: number
+    issuedAt: string
+}
+
 // ─── Push client status ───────────────────────────────────────────────────────
 
 export type IcafePushClientStatusRequest = {

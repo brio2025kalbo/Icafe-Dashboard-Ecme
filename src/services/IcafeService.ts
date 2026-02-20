@@ -38,6 +38,14 @@ import type {
     IcafeCreateAnnouncementRequest,
     IcafeReportParams,
     IcafeReport,
+    IcafeStaff,
+    IcafeCreateStaffRequest,
+    IcafeUpdateStaffRequest,
+    IcafeBillingLogParams,
+    IcafeBillingLogListResponse,
+    IcafeTransactionParams,
+    IcafeTransactionListResponse,
+    IcafeReceipt,
     IcafePushClientStatusRequest,
 } from '@/@types/icafe'
 
@@ -361,6 +369,97 @@ export async function apiGetReports(params: IcafeReportParams) {
     const response = await IcafeAxios.get<IcafeResponse<IcafeReport>>(
         v2('/reports'),
         { params },
+    )
+    return response.data
+}
+
+// ─── Staff ───────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v2/cafe/{cafeId}/staff
+ * Returns all staff (employees) registered at the café.
+ */
+export async function apiGetStaff() {
+    const response = await IcafeAxios.get<IcafeResponse<IcafeStaff[]>>(
+        v2('/staff'),
+    )
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/staff/action/create
+ * Registers a new staff member with a username, password, and role.
+ */
+export async function apiCreateStaff(data: IcafeCreateStaffRequest) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafeStaff>>(
+        v2('/staff/action/create'),
+        data,
+    )
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/staff/action/update
+ * Updates an existing staff member's details (name, role, email, phone, status).
+ */
+export async function apiUpdateStaff(data: IcafeUpdateStaffRequest) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafeStaff>>(
+        v2('/staff/action/update'),
+        data,
+    )
+    return response.data
+}
+
+/**
+ * DELETE /api/v2/cafe/{cafeId}/staff/{staffId}
+ * Removes a staff member from the café.
+ */
+export async function apiDeleteStaff(staffId: number) {
+    const response = await IcafeAxios.delete<IcafeResponse<null>>(
+        v2(`/staff/${staffId}`),
+    )
+    return response.data
+}
+
+// ─── Billing Logs ─────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v2/cafe/{cafeId}/billing-logs
+ * Returns paginated billing log entries (top-ups, checkouts, deductions, etc.).
+ * Supports filtering by date range, member, staff, and event type.
+ *
+ * Example:
+ *   apiGetBillingLogs({ startDate: '2024-01-01', endDate: '2024-01-31', type: 'topup' })
+ */
+export async function apiGetBillingLogs(params?: IcafeBillingLogParams) {
+    const response = await IcafeAxios.get<
+        IcafeResponse<IcafeBillingLogListResponse>
+    >(v2('/billing-logs'), { params })
+    return response.data
+}
+
+/**
+ * GET /api/v2/cafe/{cafeId}/transactions
+ * Returns paginated credit/debit transaction records.
+ * Supports filtering by date range, member, and transaction type.
+ *
+ * Example:
+ *   apiGetTransactions({ startDate: '2024-01-01', endDate: '2024-01-31', type: 'credit' })
+ */
+export async function apiGetTransactions(params?: IcafeTransactionParams) {
+    const response = await IcafeAxios.get<
+        IcafeResponse<IcafeTransactionListResponse>
+    >(v2('/transactions'), { params })
+    return response.data
+}
+
+/**
+ * GET /api/v2/cafe/{cafeId}/receipts/{receiptId}
+ * Returns the full receipt for a specific checkout or top-up event.
+ */
+export async function apiGetReceipt(receiptId: string) {
+    const response = await IcafeAxios.get<IcafeResponse<IcafeReceipt>>(
+        v2(`/receipts/${receiptId}`),
     )
     return response.data
 }

@@ -198,6 +198,17 @@ import {
     // Reports
     apiGetReports,            // GET    /api/v2/cafe/{cafeId}/reports
 
+    // Staff
+    apiGetStaff,              // GET    /api/v2/cafe/{cafeId}/staff
+    apiCreateStaff,           // POST   /api/v2/cafe/{cafeId}/staff/action/create
+    apiUpdateStaff,           // POST   /api/v2/cafe/{cafeId}/staff/action/update
+    apiDeleteStaff,           // DELETE /api/v2/cafe/{cafeId}/staff/{id}
+
+    // Billing Logs & Transactions
+    apiGetBillingLogs,        // GET    /api/v2/cafe/{cafeId}/billing-logs
+    apiGetTransactions,       // GET    /api/v2/cafe/{cafeId}/transactions
+    apiGetReceipt,            // GET    /api/v2/cafe/{cafeId}/receipts/{id}
+
     // Client notification
     apiPushClientStatus,      // POST   /api/v2/cafe/{cafeId}/clients/pushClientStatus
 } from '@/services/IcafeService'
