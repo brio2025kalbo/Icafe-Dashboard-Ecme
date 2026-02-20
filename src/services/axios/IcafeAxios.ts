@@ -1,38 +1,49 @@
 /**
- * Dedicated Axios instance for the iCafe Cloud REST API.
+ * Axios factory for the iCafe Cloud REST API.
  *
- * Every request automatically receives:
- *   Authorization: Bearer <VITE_ICAFE_API_KEY>
- *   Content-Type: application/json
+ * `createIcafeAxios(config)` — creates a new Axios instance scoped to the
+ * given café credentials.  Use this when managing multiple cafes.
  *
- * The base URL points directly at https://api.icafecloud.com so this
- * instance is completely independent from the local app proxy used by
- * AxiosBase (which handles the internal /api/* routes).
+ * The default export is a pre-built instance using the single-café env vars
+ * (VITE_ICAFE_API_KEY / VITE_ICAFE_API_URL) for backwards compatibility.
  */
 import axios from 'axios'
-import icafeConfig from '@/configs/icafe.config'
-import type { AxiosError } from 'axios'
+import icafeConfig, { ICAFE_API_URL } from '@/configs/icafe.config'
+import type { IcafeCafeConfig } from '@/@types/icafe'
+import type { AxiosError, AxiosInstance } from 'axios'
 
-const IcafeAxios = axios.create({
-    baseURL: icafeConfig.apiUrl,
-    timeout: 60000,
-    headers: {
-        'Content-Type': 'application/json',
-    },
-})
+/**
+ * Creates a fully configured Axios instance for one iCafe Cloud café.
+ * The Bearer token for that café is injected on every request automatically.
+ */
+export function createIcafeAxios(cafeConfig: IcafeCafeConfig): AxiosInstance {
+    const instance = axios.create({
+        baseURL: cafeConfig.apiUrl || ICAFE_API_URL,
+        timeout: 60000,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    })
 
-IcafeAxios.interceptors.request.use((config) => {
-    if (icafeConfig.apiKey) {
-        config.headers['Authorization'] = `Bearer ${icafeConfig.apiKey}`
-    }
-    return config
-})
+    instance.interceptors.request.use((config) => {
+        if (cafeConfig.apiKey) {
+            config.headers['Authorization'] = `Bearer ${cafeConfig.apiKey}`
+        }
+        return config
+    })
 
-IcafeAxios.interceptors.response.use(
-    (response) => response,
-    (error: AxiosError) => {
-        return Promise.reject(error)
-    },
-)
+    instance.interceptors.response.use(
+        (response) => response,
+        (error: AxiosError) => Promise.reject(error),
+    )
+
+    return instance
+}
+
+/**
+ * Default Axios instance — uses the single-café VITE_ICAFE_* env vars.
+ * Kept for backwards compatibility with the existing named service exports.
+ */
+const IcafeAxios = createIcafeAxios(icafeConfig)
 
 export default IcafeAxios

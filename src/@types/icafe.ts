@@ -3,6 +3,23 @@
  * Reference: https://dev.icafecloud.com/docs/
  */
 
+// ─── Multi-café config ────────────────────────────────────────────────────────
+
+/**
+ * Credentials and identity for a single iCafe Cloud café.
+ * Pass this to `createIcafeService(cafeConfig)` to get a fully scoped client.
+ */
+export type IcafeCafeConfig = {
+    /** Unique café ID from the iCafe Cloud dashboard. */
+    cafeId: string
+    /** Bearer API token from Admin Panel → Settings → API settings. */
+    apiKey: string
+    /** Human-readable label (e.g. "Branch A"). Used for display only. */
+    name?: string
+    /** Override the API base URL for this café (defaults to https://api.icafecloud.com). */
+    apiUrl?: string
+}
+
 // ─── Generic wrapper ─────────────────────────────────────────────────────────
 
 export type IcafeResponse<T = unknown> = {

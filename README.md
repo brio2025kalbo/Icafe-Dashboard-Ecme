@@ -119,28 +119,60 @@ layer make it straightforward to pull live data about your café into any page.
 
 **Reference:** https://dev.icafecloud.com/docs/
 
-### Quick setup
+### Single-café quick setup
 
 ```bash
-# 1. Copy the env example
 cp .env.example .env
-
-# 2. Fill in your iCafe credentials
-#    VITE_ICAFE_API_URL=https://api.icafecloud.com   (default, leave as-is)
-#    VITE_ICAFE_API_KEY=<token from Admin Panel → Settings → API settings>
-#    VITE_ICAFE_CAFE_ID=<your Café ID>
-
-# 3. Start the dev server
+# fill in:
+VITE_ICAFE_API_KEY=<token from Admin Panel → Settings → API settings>
+VITE_ICAFE_CAFE_ID=<your Café ID>
 npm run dev
+```
+
+### Multi-café setup
+
+If you manage several branches, list all your cafes in `VITE_ICAFE_CAFES` as
+a JSON array.  Each entry needs a `cafeId`, `apiKey`, and an optional `name`.
+
+```bash
+# .env
+VITE_ICAFE_CAFES=[{"cafeId":"111","apiKey":"tok_branch_a","name":"Branch A"},{"cafeId":"222","apiKey":"tok_branch_b","name":"Branch B"}]
+```
+
+Then in any component or hook, use `createIcafeService` with the café you want:
+
+```ts
+import { createIcafeService } from '@/services/IcafeService'
+import { icafeCafes } from '@/configs/icafe.config'
+
+// Build one client per café — each uses its own cafeId + apiKey
+const clients = icafeCafes.map(createIcafeService)
+
+// Query Branch A
+const { data: membersA } = await clients[0].apiGetMembers()
+
+// Query Branch B
+const { data: sessionsB } = await clients[1].apiGetSessions()
+```
+
+Or bind a specific café once and pass the client around:
+
+```ts
+const branchA = createIcafeService(icafeCafes[0])
+const branchB = createIcafeService(icafeCafes[1])
+
+await branchA.apiTopUpMember({ memberId: 42, amount: 10 })
+await branchB.apiGetBillingLogs({ startDate: '2024-01-01', endDate: '2024-01-31' })
 ```
 
 ### Environment variables
 
-| Variable | Description |
-|---|---|
-| `VITE_ICAFE_API_URL` | Base URL of the iCafe Cloud API. Default: `https://api.icafecloud.com` |
-| `VITE_ICAFE_API_KEY` | Bearer token from Admin Panel → Settings → API settings |
-| `VITE_ICAFE_CAFE_ID` | Your unique Café ID (used in every `/api/v2/cafe/{cafeId}/...` path) |
+| Variable | When to use | Description |
+|---|---|---|
+| `VITE_ICAFE_API_URL` | Always | Base URL. Default: `https://api.icafecloud.com` |
+| `VITE_ICAFE_API_KEY` | Single café | Bearer token from Admin Panel |
+| `VITE_ICAFE_CAFE_ID` | Single café | Your café's unique ID |
+| `VITE_ICAFE_CAFES` | Multi-café | JSON array of `{ cafeId, apiKey, name?, apiUrl? }` objects |
 
 > **Token notes**
 > - Only one token is active at a time. Generating a new one revokes the old one.
