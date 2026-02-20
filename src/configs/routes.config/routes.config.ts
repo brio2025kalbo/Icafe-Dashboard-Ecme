@@ -1,4 +1,6 @@
+import dashboardsRoute from './dashboardsRoute'
 import { lazy } from 'react'
+import uiComponentsRoute from './uiComponentsRoute'
 import authRoute from './authRoute'
 import othersRoute from './othersRoute'
 import type { Routes } from '@/@types/routes'
@@ -6,13 +8,16 @@ import type { Routes } from '@/@types/routes'
 export const publicRoutes: Routes = [...authRoute]
 
 export const protectedRoutes: Routes = [
+    ...dashboardsRoute,
+    ...othersRoute,
+    /** Example purpose only, please remove 
     {
         key: 'home',
         path: '/home',
         component: lazy(() => import('@/views/Home')),
         authority: [],
     },
-    /** Example purpose only, please remove */
+    
     {
         key: 'singleMenuItem',
         path: '/single-menu-view',
@@ -52,6 +57,6 @@ export const protectedRoutes: Routes = [
             () => import('@/views/demo/GroupCollapseMenuItemView2'),
         ),
         authority: [],
-    },
-    ...othersRoute,
+    },*/
+    
 ]

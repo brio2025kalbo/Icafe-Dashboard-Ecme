@@ -1,3 +1,4 @@
+import dashboardsNavigationConfig from './dashboards.navigation.config'
 import {
     NAV_ITEM_TYPE_TITLE,
     NAV_ITEM_TYPE_ITEM,
@@ -7,6 +8,8 @@ import {
 import type { NavigationTree } from '@/@types/navigation'
 
 const navigationConfig: NavigationTree[] = [
+	...dashboardsNavigationConfig,
+	/** Example purpose only, please remove 
     {
         key: 'home',
         path: '/home',
@@ -17,7 +20,7 @@ const navigationConfig: NavigationTree[] = [
         authority: [],
         subMenu: [],
     },
-    /** Example purpose only, please remove */
+    
     {
         key: 'singleMenuItem',
         path: '/single-menu-view',
@@ -110,7 +113,7 @@ const navigationConfig: NavigationTree[] = [
                 ],
             },
         ],
-    },
+    },*/
 ]
 
 export default navigationConfig

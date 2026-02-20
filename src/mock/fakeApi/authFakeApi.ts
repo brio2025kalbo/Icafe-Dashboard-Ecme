@@ -41,7 +41,7 @@ mock.onPost(`/sign-up`).reply((config) => {
 
     const emailUsed = signInUserData.some((user) => user.email === email)
     const newUser = {
-        avatar: '',
+        avatar: '/img/avatars/thumb-1.jpg',
         userName,
         email,
         authority: ['admin', 'user'],
