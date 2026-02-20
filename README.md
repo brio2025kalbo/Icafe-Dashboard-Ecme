@@ -47,7 +47,7 @@ cp .env.example .env
 
 | Variable | Description | Default |
 |---|---|---|
-| `VITE_API_URL` | Full URL of your backend API | `http://localhost:3000` |
+| `VITE_API_URL` | Full URL of your own backend API | `http://localhost:3000` |
 | `VITE_ENABLE_MOCK` | `"true"` – use mock data; `"false"` – hit real backend | `"true"` |
 | `VITE_FIREBASE_*` | Firebase credentials (only needed for OAuth sign-in) | *(empty)* |
 
@@ -110,6 +110,121 @@ VITE_API_URL=https://api.yourapp.com VITE_ENABLE_MOCK=false npm run build
 ```
 
 ---
+
+## iCafe Cloud API Integration
+
+The dashboard is wired to the **iCafe Cloud REST API v2**
+(`https://api.icafecloud.com`).  A dedicated Axios instance and typed service
+layer make it straightforward to pull live data about your café into any page.
+
+**Reference:** https://dev.icafecloud.com/docs/
+
+### Quick setup
+
+```bash
+# 1. Copy the env example
+cp .env.example .env
+
+# 2. Fill in your iCafe credentials
+#    VITE_ICAFE_API_URL=https://api.icafecloud.com   (default, leave as-is)
+#    VITE_ICAFE_API_KEY=<token from Admin Panel → Settings → API settings>
+#    VITE_ICAFE_CAFE_ID=<your Café ID>
+
+# 3. Start the dev server
+npm run dev
+```
+
+### Environment variables
+
+| Variable | Description |
+|---|---|
+| `VITE_ICAFE_API_URL` | Base URL of the iCafe Cloud API. Default: `https://api.icafecloud.com` |
+| `VITE_ICAFE_API_KEY` | Bearer token from Admin Panel → Settings → API settings |
+| `VITE_ICAFE_CAFE_ID` | Your unique Café ID (used in every `/api/v2/cafe/{cafeId}/...` path) |
+
+> **Token notes**
+> - Only one token is active at a time. Generating a new one revokes the old one.
+> - The token is tied to the static IP(s) you whitelist in the Admin Panel.
+> - Tokens expire after 1 year.
+
+### Available service functions
+
+All functions are in `src/services/IcafeService.ts` and return typed promises.
+
+```ts
+import {
+    apiGetCafeInfo,       // GET  /api/v2/cafe/{cafeId}
+    apiGetMembers,        // GET  /api/v2/cafe/{cafeId}/members
+    apiFetchTopUpBonus,   // POST /api/v2/cafe/{cafeId}/members/action/fetchBonus
+    apiTopUpMember,       // POST /api/v2/cafe/{cafeId}/members/action/topup
+    apiGetSessions,       // GET  /api/v2/cafe/{cafeId}/sessions
+    apiEndSession,        // POST /api/v2/cafe/{cafeId}/sessions/{id}/end
+    apiGetPCs,            // GET  /api/v2/cafe/{cafeId}/pcs
+    apiSendPCPowerCommand,// POST /api/v2/cafe/{cafeId}/pcSessions/sendWssCommand
+    apiPushClientStatus,  // POST /api/v2/cafe/{cafeId}/clients/pushClientStatus
+} from '@/services/IcafeService'
+```
+
+### Example — list active sessions
+
+```tsx
+import useSWR from 'swr'
+import { apiGetSessions } from '@/services/IcafeService'
+
+const Sessions = () => {
+    const { data, isLoading } = useSWR('icafe/sessions', apiGetSessions)
+
+    if (isLoading) return <p>Loading…</p>
+
+    return (
+        <ul>
+            {data?.data.map((s) => (
+                <li key={s.sessionId}>
+                    PC {s.pcName} — {s.status}
+                </li>
+            ))}
+        </ul>
+    )
+}
+```
+
+### Example — top-up a member
+
+```ts
+import { apiFetchTopUpBonus, apiTopUpMember, apiPushClientStatus } from '@/services/IcafeService'
+
+async function topUp(memberId: number, amount: number) {
+    // 1. Calculate bonus
+    const { data: { bonus } } = await apiFetchTopUpBonus({ memberId, amount })
+
+    // 2. Perform the top-up
+    await apiTopUpMember({ memberId, amount, topup_balance_bonus: bonus })
+
+    // 3. Notify the client PC of the new balance
+    await apiPushClientStatus({ memberId })
+}
+```
+
+### Example — reboot selected PCs
+
+```ts
+import { apiSendPCPowerCommand } from '@/services/IcafeService'
+
+await apiSendPCPowerCommand({
+    action: 'power',
+    target: 'reboot',
+    data: { power_type: 'reboot', ids: [1, 2, 3] },
+})
+```
+
+### Key files
+
+| File | Purpose |
+|---|---|
+| `src/configs/icafe.config.ts` | Reads `VITE_ICAFE_*` env vars, exports `apiUrl`, `apiKey`, `cafeId` |
+| `src/services/axios/IcafeAxios.ts` | Axios instance pre-configured for `api.icafecloud.com` with Bearer token |
+| `src/services/IcafeService.ts` | All iCafe Cloud API service functions |
+| `src/@types/icafe.ts` | TypeScript types for every request / response shape |
 
 ## Folder Structure
 
