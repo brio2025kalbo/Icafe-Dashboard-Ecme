@@ -12,6 +12,11 @@ import type {
     IcafeResponse,
     IcafeCafe,
     IcafeMember,
+    IcafeCreateMemberRequest,
+    IcafeUpdateMemberRequest,
+    IcafeDeductBalanceRequest,
+    IcafeDeductBalanceResponse,
+    IcafeConvertGuestRequest,
     IcafeTopUpRequest,
     IcafeTopUpResponse,
     IcafeFetchBonusRequest,
@@ -20,6 +25,19 @@ import type {
     IcafePC,
     IcafePCPowerRequest,
     IcafePCPowerResponse,
+    IcafePCGroup,
+    IcafeZone,
+    IcafePackage,
+    IcafeCreatePackageRequest,
+    IcafeUpdatePackageRequest,
+    IcafeBooking,
+    IcafeCreateBookingRequest,
+    IcafeFoodOrder,
+    IcafeCreateFoodOrderRequest,
+    IcafeAnnouncement,
+    IcafeCreateAnnouncementRequest,
+    IcafeReportParams,
+    IcafeReport,
     IcafePushClientStatusRequest,
 } from '@/@types/icafe'
 
@@ -33,8 +51,7 @@ const v2 = (path: string) => `/api/v2/cafe/${cafeId}${path}`
  * Returns general information about the café.
  */
 export async function apiGetCafeInfo() {
-    const response =
-        await IcafeAxios.get<IcafeResponse<IcafeCafe>>(v2(''))
+    const response = await IcafeAxios.get<IcafeResponse<IcafeCafe>>(v2(''))
     return response.data
 }
 
@@ -52,15 +69,65 @@ export async function apiGetMembers() {
 }
 
 /**
+ * POST /api/v2/cafe/{cafeId}/members/action/create
+ * Registers a new member in the system.
+ */
+export async function apiCreateMember(data: IcafeCreateMemberRequest) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafeMember>>(
+        v2('/members/action/create'),
+        data,
+    )
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/members/action/update
+ * Updates an existing member's details (nickname, email, phone, group, status).
+ */
+export async function apiUpdateMember(data: IcafeUpdateMemberRequest) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafeMember>>(
+        v2('/members/action/update'),
+        data,
+    )
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/members/action/deductBalance
+ * Deducts credit from a member's account (e.g. for purchases or penalties).
+ */
+export async function apiDeductMemberBalance(
+    data: IcafeDeductBalanceRequest,
+) {
+    const response = await IcafeAxios.post<
+        IcafeResponse<IcafeDeductBalanceResponse>
+    >(v2('/members/action/deductBalance'), data)
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/members/action/convertToMember
+ * Converts a guest account into a permanent member.
+ */
+export async function apiConvertGuestToMember(
+    data: IcafeConvertGuestRequest,
+) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafeMember>>(
+        v2('/members/action/convertToMember'),
+        data,
+    )
+    return response.data
+}
+
+/**
  * POST /api/v2/cafe/{cafeId}/members/action/fetchBonus
  * Calculates the bonus amount for a top-up before performing the top-up.
  * Call this first, then pass the returned bonus into apiTopUpMember().
  */
 export async function apiFetchTopUpBonus(data: IcafeFetchBonusRequest) {
-    const response = await IcafeAxios.post<IcafeResponse<IcafeFetchBonusResponse>>(
-        v2('/members/action/fetchBonus'),
-        data,
-    )
+    const response = await IcafeAxios.post<
+        IcafeResponse<IcafeFetchBonusResponse>
+    >(v2('/members/action/fetchBonus'), data)
     return response.data
 }
 
@@ -126,6 +193,174 @@ export async function apiSendPCPowerCommand(data: IcafePCPowerRequest) {
     const response = await IcafeAxios.post<IcafePCPowerResponse>(
         v2('/pcSessions/sendWssCommand'),
         data,
+    )
+    return response.data
+}
+
+// ─── PC Groups ───────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v2/cafe/{cafeId}/pcgroups
+ * Returns all PC groups defined in the café (used for zone/pricing segmentation).
+ */
+export async function apiGetPCGroups() {
+    const response = await IcafeAxios.get<IcafeResponse<IcafePCGroup[]>>(
+        v2('/pcgroups'),
+    )
+    return response.data
+}
+
+// ─── Zones ───────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v2/cafe/{cafeId}/zones
+ * Returns all physical or logical zones configured in the café.
+ */
+export async function apiGetZones() {
+    const response = await IcafeAxios.get<IcafeResponse<IcafeZone[]>>(
+        v2('/zones'),
+    )
+    return response.data
+}
+
+// ─── Packages ────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v2/cafe/{cafeId}/packages
+ * Returns all time/prepaid packages available at the café.
+ */
+export async function apiGetPackages() {
+    const response = await IcafeAxios.get<IcafeResponse<IcafePackage[]>>(
+        v2('/packages'),
+    )
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/packages/action/create
+ * Creates a new time or prepaid package.
+ */
+export async function apiCreatePackage(data: IcafeCreatePackageRequest) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafePackage>>(
+        v2('/packages/action/create'),
+        data,
+    )
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/packages/action/update
+ * Updates an existing package.
+ */
+export async function apiUpdatePackage(data: IcafeUpdatePackageRequest) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafePackage>>(
+        v2('/packages/action/update'),
+        data,
+    )
+    return response.data
+}
+
+// ─── Bookings ────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v2/cafe/{cafeId}/bookings
+ * Returns all current and upcoming seat bookings.
+ */
+export async function apiGetBookings() {
+    const response = await IcafeAxios.get<IcafeResponse<IcafeBooking[]>>(
+        v2('/bookings'),
+    )
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/bookings
+ * Creates a new seat booking for a member.
+ */
+export async function apiCreateBooking(data: IcafeCreateBookingRequest) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafeBooking>>(
+        v2('/bookings'),
+        data,
+    )
+    return response.data
+}
+
+/**
+ * DELETE /api/v2/cafe/{cafeId}/bookings/{bookingId}
+ * Cancels an existing booking.
+ */
+export async function apiCancelBooking(bookingId: number) {
+    const response = await IcafeAxios.delete<IcafeResponse<null>>(
+        v2(`/bookings/${bookingId}`),
+    )
+    return response.data
+}
+
+// ─── Food Orders ─────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v2/cafe/{cafeId}/orders/food
+ * Returns all food orders placed at the café.
+ */
+export async function apiGetFoodOrders() {
+    const response = await IcafeAxios.get<IcafeResponse<IcafeFoodOrder[]>>(
+        v2('/orders/food'),
+    )
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/orders/food
+ * Places a new food order on behalf of a member at a PC.
+ */
+export async function apiCreateFoodOrder(data: IcafeCreateFoodOrderRequest) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafeFoodOrder>>(
+        v2('/orders/food'),
+        data,
+    )
+    return response.data
+}
+
+// ─── Announcements ────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v2/cafe/{cafeId}/announcements
+ * Returns all announcements visible to café clients.
+ */
+export async function apiGetAnnouncements() {
+    const response = await IcafeAxios.get<IcafeResponse<IcafeAnnouncement[]>>(
+        v2('/announcements'),
+    )
+    return response.data
+}
+
+/**
+ * POST /api/v2/cafe/{cafeId}/announcements
+ * Broadcasts a new announcement to café clients.
+ */
+export async function apiCreateAnnouncement(
+    data: IcafeCreateAnnouncementRequest,
+) {
+    const response = await IcafeAxios.post<IcafeResponse<IcafeAnnouncement>>(
+        v2('/announcements'),
+        data,
+    )
+    return response.data
+}
+
+// ─── Reports ─────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v2/cafe/{cafeId}/reports
+ * Fetches activity / revenue / session reports for a given date range.
+ *
+ * Example:
+ *   apiGetReports({ startDate: '2024-01-01', endDate: '2024-01-31', type: 'revenue' })
+ */
+export async function apiGetReports(params: IcafeReportParams) {
+    const response = await IcafeAxios.get<IcafeResponse<IcafeReport>>(
+        v2('/reports'),
+        { params },
     )
     return response.data
 }

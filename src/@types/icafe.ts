@@ -39,6 +39,44 @@ export type IcafeMember = {
     createdAt: string
 }
 
+export type IcafeCreateMemberRequest = {
+    username: string
+    password: string
+    nickname?: string
+    email?: string
+    phone?: string
+    group?: string
+}
+
+export type IcafeUpdateMemberRequest = {
+    member_id: number
+    nickname?: string
+    email?: string
+    phone?: string
+    group?: string
+    status?: IcafeMemberStatus
+}
+
+export type IcafeDeductBalanceRequest = {
+    member_id: number
+    amount: number
+    reason?: string
+}
+
+export type IcafeDeductBalanceResponse = {
+    memberId: number
+    newBalance: number
+}
+
+export type IcafeConvertGuestRequest = {
+    guest_id: number
+    username: string
+    password: string
+    nickname?: string
+    email?: string
+    phone?: string
+}
+
 export type IcafeTopUpRequest = {
     memberId: number
     amount: number
@@ -112,6 +150,143 @@ export type IcafePCPowerResponse = {
     code: number
     message: string
     results: IcafePCPowerResult[]
+}
+
+// ─── PC Groups ───────────────────────────────────────────────────────────────
+
+export type IcafePCGroup = {
+    id: number
+    name: string
+    description: string
+    pricePerHour: number
+    pcCount: number
+}
+
+// ─── Zones ───────────────────────────────────────────────────────────────────
+
+export type IcafeZone = {
+    id: number
+    name: string
+    description: string
+    pcGroupId: number
+    pcCount: number
+}
+
+// ─── Packages ────────────────────────────────────────────────────────────────
+
+export type IcafePackageType = 'time' | 'prepaid' | 'unlimited'
+
+export type IcafePackage = {
+    id: number
+    name: string
+    type: IcafePackageType
+    duration: number
+    price: number
+    pcGroup: string
+    isActive: boolean
+}
+
+export type IcafeCreatePackageRequest = {
+    name: string
+    type: IcafePackageType
+    duration: number
+    price: number
+    pcGroup?: string
+}
+
+export type IcafeUpdatePackageRequest = IcafeCreatePackageRequest & {
+    id: number
+}
+
+// ─── Bookings ────────────────────────────────────────────────────────────────
+
+export type IcafeBookingStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed'
+
+export type IcafeBooking = {
+    id: number
+    memberId: number
+    memberName: string
+    pcId: number
+    pcName: string
+    startTime: string
+    endTime: string
+    status: IcafeBookingStatus
+    createdAt: string
+}
+
+export type IcafeCreateBookingRequest = {
+    memberId: number
+    pcId: number
+    startTime: string
+    endTime: string
+}
+
+// ─── Food Orders ─────────────────────────────────────────────────────────────
+
+export type IcafeFoodOrderStatus = 'pending' | 'preparing' | 'delivered' | 'cancelled'
+
+export type IcafeFoodOrderItem = {
+    itemId: number
+    itemName: string
+    quantity: number
+    unitPrice: number
+}
+
+export type IcafeFoodOrder = {
+    id: number
+    memberId: number
+    memberName: string
+    pcId: number
+    pcName: string
+    items: IcafeFoodOrderItem[]
+    totalAmount: number
+    status: IcafeFoodOrderStatus
+    createdAt: string
+}
+
+export type IcafeCreateFoodOrderRequest = {
+    memberId: number
+    pcId: number
+    items: {
+        itemId: number
+        quantity: number
+    }[]
+}
+
+// ─── Announcements ────────────────────────────────────────────────────────────
+
+export type IcafeAnnouncementTarget = 'all' | 'members' | 'guests' | 'active'
+
+export type IcafeAnnouncement = {
+    id: number
+    title: string
+    message: string
+    target: IcafeAnnouncementTarget
+    createdAt: string
+    expiresAt: string | null
+}
+
+export type IcafeCreateAnnouncementRequest = {
+    title: string
+    message: string
+    target?: IcafeAnnouncementTarget
+    expiresAt?: string
+}
+
+// ─── Reports ─────────────────────────────────────────────────────────────────
+
+export type IcafeReportParams = {
+    startDate: string
+    endDate: string
+    type?: 'revenue' | 'sessions' | 'members' | 'topups'
+}
+
+export type IcafeReport = {
+    type: string
+    startDate: string
+    endDate: string
+    summary: Record<string, number>
+    rows: Record<string, unknown>[]
 }
 
 // ─── Push client status ───────────────────────────────────────────────────────

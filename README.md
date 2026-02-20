@@ -153,15 +153,53 @@ All functions are in `src/services/IcafeService.ts` and return typed promises.
 
 ```ts
 import {
-    apiGetCafeInfo,       // GET  /api/v2/cafe/{cafeId}
-    apiGetMembers,        // GET  /api/v2/cafe/{cafeId}/members
-    apiFetchTopUpBonus,   // POST /api/v2/cafe/{cafeId}/members/action/fetchBonus
-    apiTopUpMember,       // POST /api/v2/cafe/{cafeId}/members/action/topup
-    apiGetSessions,       // GET  /api/v2/cafe/{cafeId}/sessions
-    apiEndSession,        // POST /api/v2/cafe/{cafeId}/sessions/{id}/end
-    apiGetPCs,            // GET  /api/v2/cafe/{cafeId}/pcs
-    apiSendPCPowerCommand,// POST /api/v2/cafe/{cafeId}/pcSessions/sendWssCommand
-    apiPushClientStatus,  // POST /api/v2/cafe/{cafeId}/clients/pushClientStatus
+    // Café
+    apiGetCafeInfo,           // GET    /api/v2/cafe/{cafeId}
+
+    // Members
+    apiGetMembers,            // GET    /api/v2/cafe/{cafeId}/members
+    apiCreateMember,          // POST   /api/v2/cafe/{cafeId}/members/action/create
+    apiUpdateMember,          // POST   /api/v2/cafe/{cafeId}/members/action/update
+    apiDeductMemberBalance,   // POST   /api/v2/cafe/{cafeId}/members/action/deductBalance
+    apiConvertGuestToMember,  // POST   /api/v2/cafe/{cafeId}/members/action/convertToMember
+    apiFetchTopUpBonus,       // POST   /api/v2/cafe/{cafeId}/members/action/fetchBonus
+    apiTopUpMember,           // POST   /api/v2/cafe/{cafeId}/members/action/topup
+
+    // Sessions
+    apiGetSessions,           // GET    /api/v2/cafe/{cafeId}/sessions
+    apiEndSession,            // POST   /api/v2/cafe/{cafeId}/sessions/{id}/end
+
+    // PCs
+    apiGetPCs,                // GET    /api/v2/cafe/{cafeId}/pcs
+    apiSendPCPowerCommand,    // POST   /api/v2/cafe/{cafeId}/pcSessions/sendWssCommand
+
+    // PC Groups & Zones
+    apiGetPCGroups,           // GET    /api/v2/cafe/{cafeId}/pcgroups
+    apiGetZones,              // GET    /api/v2/cafe/{cafeId}/zones
+
+    // Packages
+    apiGetPackages,           // GET    /api/v2/cafe/{cafeId}/packages
+    apiCreatePackage,         // POST   /api/v2/cafe/{cafeId}/packages/action/create
+    apiUpdatePackage,         // POST   /api/v2/cafe/{cafeId}/packages/action/update
+
+    // Bookings
+    apiGetBookings,           // GET    /api/v2/cafe/{cafeId}/bookings
+    apiCreateBooking,         // POST   /api/v2/cafe/{cafeId}/bookings
+    apiCancelBooking,         // DELETE /api/v2/cafe/{cafeId}/bookings/{id}
+
+    // Food Orders
+    apiGetFoodOrders,         // GET    /api/v2/cafe/{cafeId}/orders/food
+    apiCreateFoodOrder,       // POST   /api/v2/cafe/{cafeId}/orders/food
+
+    // Announcements
+    apiGetAnnouncements,      // GET    /api/v2/cafe/{cafeId}/announcements
+    apiCreateAnnouncement,    // POST   /api/v2/cafe/{cafeId}/announcements
+
+    // Reports
+    apiGetReports,            // GET    /api/v2/cafe/{cafeId}/reports
+
+    // Client notification
+    apiPushClientStatus,      // POST   /api/v2/cafe/{cafeId}/clients/pushClientStatus
 } from '@/services/IcafeService'
 ```
 
