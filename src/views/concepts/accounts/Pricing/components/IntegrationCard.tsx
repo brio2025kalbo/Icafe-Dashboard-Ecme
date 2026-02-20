@@ -5,7 +5,7 @@ import {
     TbVideo,
     TbBrandZoom,
     //TbLinearScale,
-    TbTrendingUp,
+    //TbTrendingUp,
     //TbBrandMailchimp,
     //TbPlayerRecord2,
     TbNotebook,
@@ -22,7 +22,7 @@ interface IntegrationCardProps {
     onDetails?: (id: string) => void
 }
 
-const iconMap: Record<string, React.ComponentType<any>> = {
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
     gmail: TbMail,
     googleMeet: TbVideo,
     zoom: TbBrandZoom,
@@ -77,8 +77,8 @@ const IntegrationCard = ({
                     <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => onSettings?.(integration.id)}
                         className="flex items-center gap-2"
+                        onClick={() => onSettings?.(integration.id)}
                     >
                         <span className="text-lg">⚙️</span>
                     </Button>
@@ -95,9 +95,9 @@ const IntegrationCard = ({
                 <label className="relative inline-flex items-center cursor-pointer">
                     <input
                         type="checkbox"
+                        className="sr-only peer"
                         checked={isEnabled}
                         onChange={handleToggle}
-                        className="sr-only peer"
                     />
                     <div
                         className={classNames(

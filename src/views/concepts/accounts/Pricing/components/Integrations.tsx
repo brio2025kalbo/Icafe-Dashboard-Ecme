@@ -3,7 +3,7 @@ import Button from '@/components/ui/Button'
 import Card from '@/components/ui/Card'
 import IntegrationCard from './IntegrationCard'
 import { integrationsData } from '../integrations-constants'
-import type { Integration, IntegrationCategory } from '../integrations-types'
+import type { IntegrationCategory } from '../integrations-types'
 
 const Integrations = () => {
     const [categories, setCategories] = useState<IntegrationCategory[]>(
@@ -52,8 +52,8 @@ const Integrations = () => {
                 <h3>Integrations</h3>
                 <Button
                     variant="primary"
-                    onClick={handleAddNewIntegration}
                     className="flex items-center gap-2"
+                    onClick={handleAddNewIntegration}
                 >
                     <span className="text-lg">+</span>
                     Add New Integration

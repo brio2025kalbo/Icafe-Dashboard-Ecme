@@ -1,8 +1,3 @@
-import Card from '@/components/ui/Card'
-import Plans from './components/Plans'
-import PaymentCycleToggle from './components/PaymentCycleToggle'
-import Faq from './components/Faq'
-import PaymentDialog from './components/PaymentDialog'
 import Integrations from './components/Integrations'
 
 const Pricing = () => {
