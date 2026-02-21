@@ -6,20 +6,11 @@ import CafeShiftOverview from './CafeShiftOverview'
 
 const AUTO_REFRESH_SECONDS = 30
 
-/**
- * IcafeShiftSection
- *
- * Renders:
- *  1. A combined "All Cafes" stat-card block with period tabs.
- *  2. One individual stat-card block per configured cafe.
- *
- * Auto-refreshes every AUTO_REFRESH_SECONDS seconds while the page is visible.
- * A countdown ring + manual refresh button is shown in the section header.
- */
 const IcafeShiftSection = () => {
     const cafes = useCafeStore((s) => s.cafes)
     const [refreshKey, setRefreshKey] = useState(0)
     const [countdown, setCountdown] = useState(AUTO_REFRESH_SECONDS)
+    const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true)
     const countdownRef = useRef(AUTO_REFRESH_SECONDS)
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -29,8 +20,15 @@ const IcafeShiftSection = () => {
         setRefreshKey((k) => k + 1)
     }, [])
 
-    // Tick every second; auto-refresh when countdown hits 0
+    // Start/stop the interval based on autoRefreshEnabled
     useEffect(() => {
+        if (!autoRefreshEnabled) {
+            if (timerRef.current) clearInterval(timerRef.current)
+            timerRef.current = null
+            countdownRef.current = AUTO_REFRESH_SECONDS
+            setCountdown(AUTO_REFRESH_SECONDS)
+            return
+        }
         timerRef.current = setInterval(() => {
             countdownRef.current -= 1
             setCountdown(countdownRef.current)
@@ -43,9 +41,9 @@ const IcafeShiftSection = () => {
         return () => {
             if (timerRef.current) clearInterval(timerRef.current)
         }
-    }, [])
+    }, [autoRefreshEnabled])
 
-    // SVG ring progress (countdown / total → stroke-dashoffset)
+    // SVG ring progress
     const radius = 8
     const circumference = 2 * Math.PI * radius
     const progress = countdown / AUTO_REFRESH_SECONDS
@@ -56,30 +54,56 @@ const IcafeShiftSection = () => {
             {/* ── All Cafes Combined ─────────────────────────────────── */}
             <div className="bg-gray-50 dark:bg-gray-900 rounded-2xl p-5 border border-gray-100 dark:border-gray-700">
                 {/* Auto-refresh indicator row */}
-                <div className="flex items-center justify-end gap-2 mb-3">
-                    <span className="text-xs text-gray-400 dark:text-gray-500">
-                        Auto-refresh in {countdown}s
-                    </span>
-                    {/* Countdown ring */}
-                    <svg width="20" height="20" className="rotate-[-90deg]">
-                        <circle
-                            cx="10" cy="10" r={radius}
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            className="text-gray-200 dark:text-gray-700"
+                <div className="flex items-center justify-end gap-3 mb-3">
+                    {/* Toggle switch */}
+                    <button
+                        role="switch"
+                        aria-checked={autoRefreshEnabled}
+                        onClick={() => setAutoRefreshEnabled((v) => !v)}
+                        title={autoRefreshEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh'}
+                        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            autoRefreshEnabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+                        }`}
+                    >
+                        <span
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                autoRefreshEnabled ? 'translate-x-4' : 'translate-x-0'
+                            }`}
                         />
-                        <circle
-                            cx="10" cy="10" r={radius}
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeDasharray={circumference}
-                            strokeDashoffset={dashOffset}
-                            strokeLinecap="round"
-                            className="text-blue-500 transition-all duration-1000 ease-linear"
-                        />
-                    </svg>
+                    </button>
+
+                    {autoRefreshEnabled ? (
+                        <>
+                            <span className="text-xs text-gray-400 dark:text-gray-500">
+                                Auto-refresh in {countdown}s
+                            </span>
+                            {/* Countdown ring */}
+                            <svg width="20" height="20" className="rotate-[-90deg]">
+                                <circle
+                                    cx="10" cy="10" r={radius}
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    className="text-gray-200 dark:text-gray-700"
+                                />
+                                <circle
+                                    cx="10" cy="10" r={radius}
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeDasharray={circumference}
+                                    strokeDashoffset={dashOffset}
+                                    strokeLinecap="round"
+                                    className="text-blue-500 transition-all duration-1000 ease-linear"
+                                />
+                            </svg>
+                        </>
+                    ) : (
+                        <span className="text-xs text-gray-400 dark:text-gray-500">
+                            Auto-refresh off
+                        </span>
+                    )}
+
                     {/* Manual refresh button */}
                     <button
                         onClick={triggerRefresh}
