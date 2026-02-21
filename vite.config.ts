@@ -21,6 +21,13 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false
+      },
+      // Forward iCafeCloud API calls to the local proxy server (server.cjs)
+      // which handles CORS and IP whitelisting.
+      '/icafe-api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false
       }
     }
   },
