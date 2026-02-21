@@ -2,6 +2,15 @@ export type Period = 'thisMonth' | 'thisWeek' | 'thisYear'
 
 export type StatisticCategory = 'totalProfit' | 'totalOrder' | 'totalImpression'
 
+export type IcafePeriod = 'daily' | 'weekly' | 'monthly' | 'yearly'
+
+export type IcafeStatCategory = 'totalProfit' | 'topUps' | 'fbSales'
+
+export type IcafeStatisticData = Record<
+    IcafeStatCategory,
+    Record<IcafePeriod, PeriodData>
+>
+
 export type ChannelRevenue = Record<
     Period,
     {
