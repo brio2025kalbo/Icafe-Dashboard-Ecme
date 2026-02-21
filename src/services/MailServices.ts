@@ -4,7 +4,7 @@ export async function apiGetMails<T, U extends Record<string, unknown>>(
     params: U,
 ) {
     return ApiService.fetchDataWithAxios<T>({
-        url: '/api/mails',
+        url: '/mails',
         method: 'get',
         params,
     })
@@ -14,7 +14,7 @@ export async function apiGetMail<T, U extends Record<string, unknown>>({
     id,
 }: U) {
     return ApiService.fetchDataWithAxios<T>({
-        url: `/api/mails/${id}`,
+        url: `/mails/${id}`,
         method: 'get',
     })
 }
