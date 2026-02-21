@@ -199,7 +199,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
             <div className="grid grid-cols-3 xl:grid-cols-5 gap-2">
                 <ShiftStatCard
                     label="Total Profit"
-                    value={formatCurrency(stats.total_profit)}
+                    value={stats.total_profit}
                     prefix="₱"
                     icon={<TbCurrencyDollar />}
                     iconBg="bg-emerald-100 text-emerald-600"
@@ -208,7 +208,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                 />
                 <ShiftStatCard
                     label="Top-ups"
-                    value={formatCurrency(stats.top_ups)}
+                    value={stats.top_ups}
                     prefix="₱"
                     icon={<TbArrowUpCircle />}
                     iconBg="bg-blue-100 text-blue-600"
@@ -217,7 +217,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                 />
                 <ShiftStatCard
                     label="Shop Sales"
-                    value={formatCurrency(stats.shop_sales)}
+                    value={stats.shop_sales}
                     prefix="₱"
                     icon={<TbShoppingCart />}
                     iconBg="bg-violet-100 text-violet-600"
@@ -226,7 +226,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                 />
                 <ShiftStatCard
                     label="Refunds"
-                    value={formatCurrency(stats.refunds)}
+                    value={stats.refunds}
                     prefix="₱"
                     icon={<TbReceiptRefund />}
                     iconBg="bg-red-100 text-red-500"
@@ -235,7 +235,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                 />
                 <ShiftStatCard
                     label="Center Expenses"
-                    value={formatCurrency(stats.center_expenses)}
+                    value={stats.center_expenses}
                     prefix="₱"
                     icon={<TbBuildingStore />}
                     iconBg="bg-orange-100 text-orange-600"

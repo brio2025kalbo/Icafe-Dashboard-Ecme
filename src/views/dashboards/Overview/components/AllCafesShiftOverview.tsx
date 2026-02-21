@@ -197,7 +197,7 @@ const AllCafesShiftOverview = () => {
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <ShiftStatCard
                     label="Total Profit"
-                    value={formatCurrency(combined.total_profit)}
+                    value={combined.total_profit}
                     prefix="₱"
                     icon={<TbCurrencyDollar />}
                     iconBg="bg-emerald-100 text-emerald-600"
@@ -205,7 +205,7 @@ const AllCafesShiftOverview = () => {
                 />
                 <ShiftStatCard
                     label="Top-ups"
-                    value={formatCurrency(combined.top_ups)}
+                    value={combined.top_ups}
                     prefix="₱"
                     icon={<TbArrowUpCircle />}
                     iconBg="bg-blue-100 text-blue-600"
@@ -213,7 +213,7 @@ const AllCafesShiftOverview = () => {
                 />
                 <ShiftStatCard
                     label="Shop Sales"
-                    value={formatCurrency(combined.shop_sales)}
+                    value={combined.shop_sales}
                     prefix="₱"
                     icon={<TbShoppingCart />}
                     iconBg="bg-violet-100 text-violet-600"
@@ -221,7 +221,7 @@ const AllCafesShiftOverview = () => {
                 />
                 <ShiftStatCard
                     label="Refunds"
-                    value={formatCurrency(combined.refunds)}
+                    value={combined.refunds}
                     prefix="₱"
                     icon={<TbReceiptRefund />}
                     iconBg="bg-red-100 text-red-500"
@@ -229,7 +229,7 @@ const AllCafesShiftOverview = () => {
                 />
                 <ShiftStatCard
                     label="Center Expenses"
-                    value={formatCurrency(combined.center_expenses)}
+                    value={combined.center_expenses}
                     prefix="₱"
                     icon={<TbBuildingStore />}
                     iconBg="bg-orange-100 text-orange-600"

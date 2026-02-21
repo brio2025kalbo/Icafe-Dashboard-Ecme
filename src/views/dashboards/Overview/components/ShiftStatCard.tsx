@@ -1,14 +1,22 @@
 import type { ReactNode } from 'react'
 import { Spinner } from '@/components/ui'
+import useCountUp from '@/hooks/useCountUp'
 
 type Props = {
     label: string
-    value: string | number
+    value: number          // raw numeric value — formatted internally
     icon: ReactNode
     iconBg?: string
     loading?: boolean
     prefix?: string
-    size?: 'sm' | 'md'   // sm = compact for individual cafe cards, md = default
+    size?: 'sm' | 'md'
+}
+
+function formatCurrency(val: number): string {
+    return val.toLocaleString('en-PH', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })
 }
 
 const ShiftStatCard = ({
@@ -20,6 +28,8 @@ const ShiftStatCard = ({
     prefix,
     size = 'md',
 }: Props) => {
+    const animated = useCountUp(loading ? 0 : value)
+
     const valueClass = size === 'sm'
         ? 'text-lg font-bold text-gray-900 dark:text-white break-all'
         : 'text-2xl font-bold text-gray-900 dark:text-white break-all'
@@ -48,7 +58,7 @@ const ShiftStatCard = ({
             ) : (
                 <div className={valueClass}>
                     {prefix && <span className={prefixClass}>{prefix}</span>}
-                    {value}
+                    {formatCurrency(animated)}
                 </div>
             )}
         </div>

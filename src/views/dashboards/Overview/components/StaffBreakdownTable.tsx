@@ -1,3 +1,4 @@
+import useCountUp from '@/hooks/useCountUp'
 import type { ShiftBreakdownRow } from '../icafeTypes'
 
 type Props = {
@@ -11,10 +12,25 @@ function fmt(val: number): string {
 
 function fmtTime(t: string): string {
     if (!t || t === '-') return '—'
-    // "2026-02-21 08:04:00" → "08:04"
     const parts = t.split(' ')
     if (parts.length === 2) return parts[1].slice(0, 5)
     return t.slice(0, 5)
+}
+
+// Animated cell for a single numeric value
+const AnimatedCell = ({
+    value,
+    className,
+}: {
+    value: number
+    className?: string
+}) => {
+    const animated = useCountUp(value)
+    return (
+        <td className={`px-3 py-2 text-right whitespace-nowrap ${className ?? ''}`}>
+            ₱{fmt(animated)}
+        </td>
+    )
 }
 
 const StaffBreakdownTable = ({ rows, loading }: Props) => {
@@ -64,21 +80,26 @@ const StaffBreakdownTable = ({ rows, loading }: Props) => {
                                     : fmtTime(row.end_time)
                                 }
                             </td>
-                            <td className="px-3 py-2 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                                ₱{fmt(row.top_ups)}
-                            </td>
-                            <td className="px-3 py-2 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                                ₱{fmt(row.shop_sales)}
-                            </td>
-                            <td className={`px-3 py-2 text-right whitespace-nowrap ${row.refunds < 0 ? 'text-red-500' : 'text-gray-700 dark:text-gray-300'}`}>
-                                ₱{fmt(row.refunds)}
-                            </td>
-                            <td className={`px-3 py-2 text-right whitespace-nowrap ${row.center_expenses < 0 ? 'text-orange-500' : 'text-gray-700 dark:text-gray-300'}`}>
-                                ₱{fmt(row.center_expenses)}
-                            </td>
-                            <td className="px-3 py-2 text-right font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                ₱{fmt(row.total_profit)}
-                            </td>
+                            <AnimatedCell
+                                value={row.top_ups}
+                                className="text-gray-700 dark:text-gray-300"
+                            />
+                            <AnimatedCell
+                                value={row.shop_sales}
+                                className="text-gray-700 dark:text-gray-300"
+                            />
+                            <AnimatedCell
+                                value={row.refunds}
+                                className={row.refunds < 0 ? 'text-red-500' : 'text-gray-700 dark:text-gray-300'}
+                            />
+                            <AnimatedCell
+                                value={row.center_expenses}
+                                className={row.center_expenses < 0 ? 'text-orange-500' : 'text-gray-700 dark:text-gray-300'}
+                            />
+                            <AnimatedCell
+                                value={row.total_profit}
+                                className="font-semibold text-emerald-600 dark:text-emerald-400"
+                            />
                         </tr>
                     ))}
                 </tbody>
