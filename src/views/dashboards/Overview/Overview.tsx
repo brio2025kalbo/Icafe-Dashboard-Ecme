@@ -41,15 +41,18 @@ function buildStatisticDataFromIcafe(
         seriesName: string,
     ) => {
         const r = responses[period]
-        if (!r) {
-            return {
-                value: 0,
-                // Growth rate requires two consecutive periods from the API;
-                // defaulting to 0 until a previous-period comparison endpoint is available.
-                growShrink: 0,
-                comparePeriod: comparePeriodLabel[period],
-                chartData: { series: [{ name: seriesName, data: [] }], date: [] },
-            }
+        const zero = {
+            value: 0,
+            // Growth rate requires two consecutive periods from the API;
+            // defaulting to 0 until a previous-period comparison endpoint is available.
+            growShrink: 0,
+            comparePeriod: comparePeriodLabel[period],
+            chartData: { series: [{ name: seriesName, data: [] }], date: [] },
+        }
+        // Guard against missing response or malformed API payloads
+        // (e.g. 200 OK with data: null on auth failure)
+        if (!r?.data?.summary || !Array.isArray(r.data.details)) {
+            return zero
         }
         return {
             value: getValue(r),
@@ -173,15 +176,23 @@ const SalesDashboard = () => {
         !!selectedCafe && (loadingWeek || loadingMonth || loadingYear)
 
     const icafeStatisticData = useMemo(() => {
-        if (!selectedCafe) return null
-        return buildStatisticDataFromIcafe({
-            thisWeek: icafeWeek ?? undefined,
-            thisMonth: icafeMonth ?? undefined,
-            thisYear: icafeYear ?? undefined,
-        })
-    }, [selectedCafe, icafeWeek, icafeMonth, icafeYear])
+        // While loading or no cafe selected, return null so mock data keeps showing
+        if (!selectedCafe || icafeLoading) return null
+        try {
+            return buildStatisticDataFromIcafe({
+                thisWeek: icafeWeek ?? undefined,
+                thisMonth: icafeMonth ?? undefined,
+                thisYear: icafeYear ?? undefined,
+            })
+        } catch (error) {
+            console.error('Failed to build iCafe statistics:', error)
+            return null
+        }
+    }, [selectedCafe, icafeLoading, icafeWeek, icafeMonth, icafeYear])
 
-    const isLoading = mockLoading || icafeLoading
+    // Only show a full-page spinner for the initial mock data load.
+    // iCafeCloud API loading shows mock data in the background so the page stays visible.
+    const isLoading = mockLoading
     const statisticData = icafeStatisticData ?? mockData?.statisticData
 
     const cafeOptions = cafes.map((c) => ({ value: c.id, label: c.name }))
