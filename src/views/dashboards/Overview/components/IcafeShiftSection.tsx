@@ -114,7 +114,7 @@ const IcafeShiftSection = () => {
                     </button>
                 </div>
 
-                <AllCafesShiftOverview key={`all-${refreshKey}`} />
+                <AllCafesShiftOverview refreshSignal={refreshKey} />
             </div>
 
             {/* ── Per-Cafe Breakdown ─────────────────────────────────── */}
@@ -130,9 +130,9 @@ const IcafeShiftSection = () => {
                                 className="bg-gray-50 dark:bg-gray-900 rounded-2xl p-5 border border-gray-100 dark:border-gray-700"
                             >
                                 <CafeShiftOverview
-                                    key={`${cafe.id}-${refreshKey}`}
                                     cafe={cafe}
                                     showTitle
+                                    refreshSignal={refreshKey}
                                 />
                             </div>
                         ))}

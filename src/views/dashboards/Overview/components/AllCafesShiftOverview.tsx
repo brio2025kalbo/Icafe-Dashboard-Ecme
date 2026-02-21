@@ -18,6 +18,7 @@ import {
     getTodayBusinessDateStr,
     PERIOD_OPTIONS,
 } from '../utils/periodUtils'
+import { useRef } from 'react'
 import { useCafeStore } from '@/store/cafeStore'
 import type { PeriodType, ShiftStats } from '../icafeTypes'
 
@@ -44,13 +45,17 @@ function addDaysToStr(dateStr: string, n: number): string {
     return `${y}-${m}-${day}`
 }
 
-const AllCafesShiftOverview = () => {
+type Props = { refreshSignal?: number }
+
+const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
     const cafes = useCafeStore((s) => s.cafes)
     const [period, setPeriod] = useState<PeriodType>('daily')
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [combined, setCombined] = useState<ShiftStats>(EMPTY_STATS)
-    const [loading, setLoading] = useState(false)
+    const [loading, setLoading] = useState(false)   // first-load only
+    const [refreshing, setRefreshing] = useState(false) // silent background refresh
     const [errors, setErrors] = useState<string[]>([])
+    const hasLoadedOnce = useRef(false)
 
     const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
 
@@ -61,7 +66,11 @@ const AllCafesShiftOverview = () => {
             return
         }
 
-        setLoading(true)
+        if (!hasLoadedOnce.current) {
+            setLoading(true)
+        } else {
+            setRefreshing(true)
+        }
         setErrors([])
 
         const range = period === 'daily'
@@ -99,12 +108,24 @@ const AllCafesShiftOverview = () => {
         setCombined(totals)
         setErrors(errs)
         setLoading(false)
+        setRefreshing(false)
+        hasLoadedOnce.current = true
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cafes, period, selectedDate])
+    }, [cafes, period, selectedDate]) // eslint-disable-line
 
+    // Initial + period/date change fetch
     useEffect(() => {
         fetchAll()
     }, [fetchAll])
+
+    // Silent background refresh triggered by parent
+    const prevSignal = useRef(refreshSignal)
+    useEffect(() => {
+        if (refreshSignal !== prevSignal.current) {
+            prevSignal.current = refreshSignal
+            fetchAll()
+        }
+    }, [refreshSignal, fetchAll])
 
     const todayStr = getTodayBusinessDateStr()
     const isToday = selectedDate === todayStr

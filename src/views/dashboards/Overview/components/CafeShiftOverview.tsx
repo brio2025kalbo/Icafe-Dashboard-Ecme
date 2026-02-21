@@ -19,12 +19,14 @@ import {
     getTodayBusinessDateStr,
     PERIOD_OPTIONS,
 } from '../utils/periodUtils'
+import { useRef } from 'react'
 import type { PeriodType, ShiftStats, ShiftBreakdownRow } from '../icafeTypes'
 import type { Cafe } from '@/@types/cafe'
 
 type Props = {
     cafe: Cafe
     showTitle?: boolean
+    refreshSignal?: number
 }
 
 const EMPTY_STATS: ShiftStats = {
@@ -50,21 +52,27 @@ function addDaysToStr(dateStr: string, n: number): string {
     return `${y}-${m}-${day}`
 }
 
-const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
+const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props) => {
     const [period, setPeriod] = useState<PeriodType>('daily')
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [stats, setStats] = useState<ShiftStats>(EMPTY_STATS)
     const [breakdown, setBreakdown] = useState<ShiftBreakdownRow[]>([])
-    const [loading, setLoading] = useState(false)
+    const [loading, setLoading] = useState(false)    // first-load only
+    const [refreshing, setRefreshing] = useState(false) // silent background refresh
     const [error, setError] = useState<string | null>(null)
     const [noShifts, setNoShifts] = useState(false)
+    const hasLoadedOnce = useRef(false)
 
     const fetchStats = useCallback(async () => {
         if (!cafe.cafeId || !cafe.apiKey) {
             setError('Cafe ID or API key not configured.')
             return
         }
-        setLoading(true)
+        if (!hasLoadedOnce.current) {
+            setLoading(true)
+        } else {
+            setRefreshing(true)
+        }
         setError(null)
         setNoShifts(false)
         try {
@@ -98,16 +106,25 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : 'Failed to load shift data.'
             setError(msg)
-            setStats(EMPTY_STATS)
-            setBreakdown([])
         } finally {
             setLoading(false)
+            setRefreshing(false)
+            hasLoadedOnce.current = true
         }
     }, [cafe.id, cafe.cafeId, cafe.apiKey, period, selectedDate])
 
     useEffect(() => {
         fetchStats()
     }, [fetchStats])
+
+    // Silent background refresh triggered by parent
+    const prevSignal = useRef(refreshSignal)
+    useEffect(() => {
+        if (refreshSignal !== prevSignal.current) {
+            prevSignal.current = refreshSignal
+            fetchStats()
+        }
+    }, [refreshSignal, fetchStats])
 
     const todayStr = getTodayBusinessDateStr()
     const isToday = selectedDate === todayStr
