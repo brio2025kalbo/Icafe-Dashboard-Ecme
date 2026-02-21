@@ -195,8 +195,8 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                 </div>
             )}
 
-            {/* Stat cards grid */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            {/* Stat cards grid — 3 cols on medium, 5 on large wide screens */}
+            <div className="grid grid-cols-3 xl:grid-cols-5 gap-2">
                 <ShiftStatCard
                     label="Total Profit"
                     value={formatCurrency(stats.total_profit)}
@@ -204,6 +204,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                     icon={<TbCurrencyDollar />}
                     iconBg="bg-emerald-100 text-emerald-600"
                     loading={loading}
+                    size="sm"
                 />
                 <ShiftStatCard
                     label="Top-ups"
@@ -212,6 +213,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                     icon={<TbArrowUpCircle />}
                     iconBg="bg-blue-100 text-blue-600"
                     loading={loading}
+                    size="sm"
                 />
                 <ShiftStatCard
                     label="Shop Sales"
@@ -220,6 +222,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                     icon={<TbShoppingCart />}
                     iconBg="bg-violet-100 text-violet-600"
                     loading={loading}
+                    size="sm"
                 />
                 <ShiftStatCard
                     label="Refunds"
@@ -228,6 +231,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                     icon={<TbReceiptRefund />}
                     iconBg="bg-red-100 text-red-500"
                     loading={loading}
+                    size="sm"
                 />
                 <ShiftStatCard
                     label="Center Expenses"
@@ -236,6 +240,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                     icon={<TbBuildingStore />}
                     iconBg="bg-orange-100 text-orange-600"
                     loading={loading}
+                    size="sm"
                 />
             </div>
 
