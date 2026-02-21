@@ -200,13 +200,17 @@ export async function apiGetShiftBreakdown(
         const refunds       = Number(d.cash_refund)     || 0
         const expenses      = Number(d.center_expenses) || 0
         const totalProfit   = Number(d.total_amount)    || 0
-        const isActive      = String(d.end_time ?? '') === '-' || !d.end_time
+        // Active shifts have a negative shift_id in the shift list.
+        // The shift detail API returns the current time as end_time for active
+        // shifts (not '-'), so we rely on the shift_id sign to detect them.
+        const rawId    = items![idx].shift_id ?? items![idx].id
+        const isActive = Number(rawId) < 0
 
         acc.push({
-            shift_id:        items![idx].shift_id ?? items![idx].id,
+            shift_id:        rawId,
             staff_name:      d.staff_name  || String(items![idx].shift_staff_name ?? ''),
             start_time:      d.start_time  || '',
-            end_time:        d.end_time    || '-',
+            end_time:        isActive ? '-' : (d.end_time || '-'),
             is_active:       isActive,
             top_ups:         topUps,
             shop_sales:      shopSales,
