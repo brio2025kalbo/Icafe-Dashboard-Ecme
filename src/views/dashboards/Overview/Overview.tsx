@@ -9,7 +9,8 @@ import { apiGetEcommerceDashboard } from '@/services/DashboardService'
 import { apiGetReports } from '@/services/IcafeService'
 import useSWR from 'swr'
 import { buildIcafeStats, getPeriodDateRanges } from './utils'
-import type { GetEcommerceDashboardResponse , IcafeStatisticData } from './types'
+import appConfig from '@/configs/app.config'
+import type { GetEcommerceDashboardResponse, IcafeStatisticData } from './types'
 
 const ICAFE_PERIODS = ['daily', 'weekly', 'monthly', 'yearly'] as const
 
@@ -32,7 +33,7 @@ function emptyIcafeStats(): IcafeStatisticData {
 }
 
 const SalesDashboard = () => {
-    // ── iCafe reports ─────────────────────────────────────────────────────────
+    // ── iCafe reports (always fetched — real backend) ─────────────────────────
     const { data: icafeStats, isLoading: icafeLoading } = useSWR(
         ['/icafe/dashboard-overview'],
         async () => {
@@ -69,9 +70,11 @@ const SalesDashboard = () => {
         },
     )
 
-    // ── Mock data for the other widgets ───────────────────────────────────────
+    // ── Mock-only widgets (skip fetch when VITE_ENABLE_MOCK=false) ────────────
+    // These widgets rely on demo data that has no real iCafe backend equivalent.
+    // Passing null as the SWR key prevents any network request when mock is off.
     const { data: mockData, isLoading: mockLoading } = useSWR(
-        ['/api/dashboard/ecommerce'],
+        appConfig.enableMock ? ['/dashboard/ecommerce'] : null,
         () => apiGetEcommerceDashboard<GetEcommerceDashboardResponse>(),
         {
             revalidateOnFocus: false,
@@ -82,26 +85,30 @@ const SalesDashboard = () => {
 
     return (
         <Loading loading={icafeLoading || mockLoading}>
-            {mockData && icafeStats && (
+            {icafeStats && (
                 <div>
                     <div className="flex flex-col gap-4 max-w-full overflow-x-hidden">
                         <div className="flex flex-col xl:flex-row gap-4">
                             <div className="flex flex-col gap-4 flex-1 xl:col-span-3">
                                 <IcafeOverview data={icafeStats} />
-                                <CustomerDemographic
-                                    data={mockData.customerDemographic}
-                                />
+                                {mockData && (
+                                    <CustomerDemographic
+                                        data={mockData.customerDemographic}
+                                    />
+                                )}
                             </div>
-                            <div className="flex flex-col gap-4 2xl:min-w-[360px]">
-                                <SalesTarget data={mockData.salesTarget} />
-                                <TopProduct data={mockData.topProduct} />
-                                <RevenueByChannel
-                                    data={mockData.revenueByChannel}
-                                />
-                            </div>
+                            {mockData && (
+                                <div className="flex flex-col gap-4 2xl:min-w-[360px]">
+                                    <SalesTarget data={mockData.salesTarget} />
+                                    <TopProduct data={mockData.topProduct} />
+                                    <RevenueByChannel
+                                        data={mockData.revenueByChannel}
+                                    />
+                                </div>
+                            )}
                         </div>
 
-                        <RecentOrder data={mockData.recentOrders} />
+                        {mockData && <RecentOrder data={mockData.recentOrders} />}
                     </div>
                 </div>
             )}
