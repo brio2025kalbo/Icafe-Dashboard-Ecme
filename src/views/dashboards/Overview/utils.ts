@@ -57,6 +57,9 @@ const topUpValue = (obj: ShiftRow) =>
 const fbValue = (obj: ShiftRow) =>
     pick(
         obj,
+        'totalFnb',
+        'total_fnb',
+        'fnb',
         'fbRevenue',
         'fb_revenue',
         'fbSales',

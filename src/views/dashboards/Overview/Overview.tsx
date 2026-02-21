@@ -6,11 +6,13 @@ import SalesTarget from './components/SalesTarget'
 import TopProduct from './components/TopProduct'
 import RevenueByChannel from './components/RevenueByChannel'
 import { apiGetEcommerceDashboard } from '@/services/DashboardService'
-import { apiGetReports } from '@/services/IcafeService'
+import { createIcafeService } from '@/services/IcafeService'
+import { icafeCafes } from '@/configs/icafe.config'
 import useSWR from 'swr'
 import { buildIcafeStats, getPeriodDateRanges } from './utils'
 import appConfig from '@/configs/app.config'
 import type { GetEcommerceDashboardResponse, IcafeStatisticData } from './types'
+import type { IcafeReport } from '@/@types/icafe'
 
 const ICAFE_PERIODS = ['daily', 'weekly', 'monthly', 'yearly'] as const
 
@@ -32,34 +34,79 @@ function emptyIcafeStats(): IcafeStatisticData {
     }
 }
 
+/**
+ * Merge multiple IcafeReport responses (one per café) into a single report by
+ * summing numeric summary values and concatenating shift rows.  Returns null
+ * if every input report is null.
+ */
+function aggregateReports(reports: (IcafeReport | null)[]): IcafeReport | null {
+    const valid = reports.filter((r): r is IcafeReport => r !== null)
+    if (valid.length === 0) return null
+    if (valid.length === 1) return valid[0]
+
+    const summary: Record<string, number> = {}
+    for (const report of valid) {
+        for (const [k, v] of Object.entries(report.summary)) {
+            summary[k] = (summary[k] ?? 0) + (typeof v === 'number' ? v : 0)
+        }
+    }
+
+    return {
+        ...valid[0],
+        summary,
+        rows: valid.flatMap((r) => r.rows),
+    }
+}
+
 const SalesDashboard = () => {
-    // ── iCafe reports (always fetched — real backend) ─────────────────────────
+    // ── iCafe reports — one call per café per period, then aggregated ──────────
     const { data: icafeStats, isLoading: icafeLoading } = useSWR(
         ['/icafe/dashboard-overview'],
         async () => {
             const ranges = getPeriodDateRanges()
-            // Fetch current and previous report for each period in parallel
+            // Build a scoped service for every configured café (works for both
+            // single-café and multi-café setups via icafeCafes).
+            const cafeServices = icafeCafes.map(createIcafeService)
+
             const results = await Promise.all(
                 ICAFE_PERIODS.map(async (period) => {
-                    const [current, previous] = await Promise.all([
-                        apiGetReports(ranges[period].current).catch(() => null),
-                        apiGetReports(ranges[period].previous).catch(
-                            () => null,
-                        ),
-                    ])
+                    // Fetch current + previous from ALL cafés in parallel
+                    const cafeReports = await Promise.all(
+                        cafeServices.map(async (svc) => {
+                            const [current, previous] = await Promise.all([
+                                svc
+                                    .apiGetReports(ranges[period].current)
+                                    .catch(() => null),
+                                svc
+                                    .apiGetReports(ranges[period].previous)
+                                    .catch(() => null),
+                            ])
+                            return {
+                                current: current?.data ?? null,
+                                previous: previous?.data ?? null,
+                            }
+                        }),
+                    )
+
                     return {
                         period,
-                        current: current?.data ?? null,
-                        previous: previous?.data ?? null,
+                        current: aggregateReports(
+                            cafeReports.map((r) => r.current),
+                        ),
+                        previous: aggregateReports(
+                            cafeReports.map((r) => r.previous),
+                        ),
                     }
                 }),
             )
+
             const reportsByPeriod = Object.fromEntries(
                 results.map(({ period, current, previous }) => [
                     period,
                     { current, previous },
                 ]),
             ) as Parameters<typeof buildIcafeStats>[0]
+
             return buildIcafeStats(reportsByPeriod)
         },
         {
