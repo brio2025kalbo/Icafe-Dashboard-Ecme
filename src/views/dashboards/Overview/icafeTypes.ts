@@ -103,6 +103,7 @@ export type ShiftStats = {
     top_ups: number
     shop_sales: number
     center_expenses: number
+    refunds: number
     shift_count: number
 }
 

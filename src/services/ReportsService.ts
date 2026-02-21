@@ -162,6 +162,7 @@ export async function apiGetShiftStats(
         top_ups: 0,
         shop_sales: 0,
         center_expenses: 0,
+        refunds: 0,
         shift_count: 0,
     }
 
@@ -225,11 +226,13 @@ export async function apiGetShiftStats(
         const digitalTopups = (Number(d.qr_topup) || 0) + (Number(d.credit_card) || 0)
         const topUps       = (cash - shopSales) + digitalTopups
         const expenses     = Number(d.center_expenses) || 0
+        const refunds      = Number(d.cash_refund)      || 0
         return {
             total_profit:    acc.total_profit    + totalProfit,
             top_ups:         acc.top_ups         + topUps,
             shop_sales:      acc.shop_sales      + shopSales,
             center_expenses: acc.center_expenses + expenses,
+            refunds:         acc.refunds         + refunds,
             shift_count:     acc.shift_count     + 1,
         }
     }, empty)

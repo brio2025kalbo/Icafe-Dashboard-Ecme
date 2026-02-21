@@ -5,6 +5,7 @@ import {
     TbArrowUpCircle,
     TbShoppingCart,
     TbBuildingStore,
+    TbReceiptRefund,
     TbCalendarOff,
     TbChevronLeft,
     TbChevronRight,
@@ -30,6 +31,7 @@ const EMPTY_STATS: ShiftStats = {
     top_ups: 0,
     shop_sales: 0,
     center_expenses: 0,
+    refunds: 0,
     shift_count: 0,
 }
 
@@ -179,7 +181,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
             )}
 
             {/* Stat cards grid */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <ShiftStatCard
                     label="Total Profit"
                     value={formatCurrency(stats.total_profit)}
@@ -202,6 +204,14 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                     prefix="₱"
                     icon={<TbShoppingCart />}
                     iconBg="bg-violet-100 text-violet-600"
+                    loading={loading}
+                />
+                <ShiftStatCard
+                    label="Refunds"
+                    value={formatCurrency(stats.refunds)}
+                    prefix="₱"
+                    icon={<TbReceiptRefund />}
+                    iconBg="bg-red-100 text-red-500"
                     loading={loading}
                 />
                 <ShiftStatCard
