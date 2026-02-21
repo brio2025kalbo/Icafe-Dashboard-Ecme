@@ -178,6 +178,21 @@ const SalesDashboard = () => {
     const icafeStatisticData = useMemo(() => {
         // While loading or no cafe selected, return null so mock data keeps showing
         if (!selectedCafe || icafeLoading) return null
+
+        // Log the raw responses so field names can be verified in the browser console
+        console.debug('[iCafe] API responses:', {
+            thisWeek: icafeWeek,
+            thisMonth: icafeMonth,
+            thisYear: icafeYear,
+        })
+
+        // Only proceed if at least one period returned a valid data payload.
+        // Covers API errors (data === undefined) and error-code responses (data === null).
+        const hasValidData = [icafeWeek, icafeMonth, icafeYear].some(
+            (r) => r?.data?.summary != null && Array.isArray(r.data?.details),
+        )
+        if (!hasValidData) return null
+
         try {
             return buildStatisticDataFromIcafe({
                 thisWeek: icafeWeek ?? undefined,
