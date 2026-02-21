@@ -11,14 +11,15 @@ import {
     TbChevronRight,
 } from 'react-icons/tb'
 import ShiftStatCard from './ShiftStatCard'
-import { apiGetShiftStats } from '@/services/ReportsService'
+import StaffBreakdownTable from './StaffBreakdownTable'
+import { apiGetShiftStats, apiGetShiftBreakdown } from '@/services/ReportsService'
 import {
     getDateRange,
     getBusinessDayRange,
     getTodayBusinessDateStr,
     PERIOD_OPTIONS,
 } from '../utils/periodUtils'
-import type { PeriodType, ShiftStats } from '../icafeTypes'
+import type { PeriodType, ShiftStats, ShiftBreakdownRow } from '../icafeTypes'
 import type { Cafe } from '@/@types/cafe'
 
 type Props = {
@@ -53,6 +54,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
     const [period, setPeriod] = useState<PeriodType>('daily')
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [stats, setStats] = useState<ShiftStats>(EMPTY_STATS)
+    const [breakdown, setBreakdown] = useState<ShiftBreakdownRow[]>([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [noShifts, setNoShifts] = useState(false)
@@ -69,22 +71,35 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
             const range = period === 'daily'
                 ? getBusinessDayRange(selectedDate)
                 : getDateRange(period)
-            const result = await apiGetShiftStats(cafe.id, {
-                date_start: range.date_start,
-                date_end:   range.date_end,
-                time_start: range.time_start,
-                time_end:   range.time_end,
-            })
+
+            const [result, rows] = await Promise.all([
+                apiGetShiftStats(cafe.id, {
+                    date_start: range.date_start,
+                    date_end:   range.date_end,
+                    time_start: range.time_start,
+                    time_end:   range.time_end,
+                }),
+                apiGetShiftBreakdown(cafe.id, {
+                    date_start: range.date_start,
+                    date_end:   range.date_end,
+                    time_start: range.time_start,
+                    time_end:   range.time_end,
+                }),
+            ])
+
             if (result.shift_count === 0) {
                 setNoShifts(true)
                 setStats(EMPTY_STATS)
+                setBreakdown([])
             } else {
                 setStats(result)
+                setBreakdown(rows)
             }
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : 'Failed to load shift data.'
             setError(msg)
             setStats(EMPTY_STATS)
+            setBreakdown([])
         } finally {
             setLoading(false)
         }
@@ -223,6 +238,9 @@ const CafeShiftOverview = ({ cafe, showTitle = true }: Props) => {
                     loading={loading}
                 />
             </div>
+
+            {/* Per-staff breakdown table */}
+            <StaffBreakdownTable rows={breakdown} loading={loading} />
         </div>
     )
 }

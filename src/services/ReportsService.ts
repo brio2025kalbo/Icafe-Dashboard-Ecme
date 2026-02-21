@@ -10,6 +10,7 @@ import type {
     ShiftDetailResponse,
     ShiftListParams,
     ShiftStats,
+    ShiftBreakdownRow,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -149,6 +150,72 @@ async function apiGetBusinessDayShiftList(
     }
 
     return combined
+}
+
+// ─── Per-shift Breakdown ─────────────────────────────────────────────────────
+
+export async function apiGetShiftBreakdown(
+    cafeId: string,
+    params: ShiftListParams,
+): Promise<ShiftBreakdownRow[]> {
+    let items: ShiftListResponse['data']
+
+    if (
+        params.date_start &&
+        params.date_end &&
+        params.date_start !== params.date_end
+    ) {
+        const resp = await apiGetShiftList(cafeId, {
+            ...params,
+            time_start: '00:00',
+            time_end:   '23:59',
+        })
+        items = resp.data ?? []
+    } else {
+        const bizDate = params.date_start
+        const parts   = bizDate.split('-').map(Number)
+        const d       = new Date(parts[0], parts[1] - 1, parts[2])
+        d.setDate(d.getDate() + 1)
+        const nextDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        items = await apiGetBusinessDayShiftList(cafeId, bizDate, nextDate)
+    }
+
+    if (!items || items.length === 0) return []
+
+    const details = await Promise.allSettled(
+        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+    )
+
+    return details.reduce<ShiftBreakdownRow[]>((acc, result, idx) => {
+        if (result.status !== 'fulfilled') return acc
+        const d = result.value.data
+        if (!d) return acc
+
+        const cash         = Number(d.cash) || 0
+        const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
+        const shopSales    = shopSalesArr.reduce((sum: number, item: { cash?: string | number }) =>
+            sum + (parseFloat(String(item.cash ?? 0)) || 0), 0)
+        const digitalTopups = (Number(d.qr_topup) || 0) + (Number(d.credit_card) || 0)
+        const topUps        = (cash - shopSales) + digitalTopups
+        const refunds       = Number(d.cash_refund)     || 0
+        const expenses      = Number(d.center_expenses) || 0
+        const totalProfit   = Number(d.total_amount)    || 0
+        const isActive      = String(d.end_time ?? '') === '-' || !d.end_time
+
+        acc.push({
+            shift_id:        items![idx].shift_id ?? items![idx].id,
+            staff_name:      d.staff_name  || String(items![idx].shift_staff_name ?? ''),
+            start_time:      d.start_time  || '',
+            end_time:        d.end_time    || '-',
+            is_active:       isActive,
+            top_ups:         topUps,
+            shop_sales:      shopSales,
+            refunds,
+            center_expenses: expenses,
+            total_profit:    totalProfit,
+        })
+        return acc
+    }, [])
 }
 
 // ─── Aggregated Stats ─────────────────────────────────────────────────────────

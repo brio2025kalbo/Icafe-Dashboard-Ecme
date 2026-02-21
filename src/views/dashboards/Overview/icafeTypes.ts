@@ -107,6 +107,20 @@ export type ShiftStats = {
     shift_count: number
 }
 
+/** Per-shift breakdown row for the staff table */
+export type ShiftBreakdownRow = {
+    shift_id: string | number
+    staff_name: string
+    start_time: string
+    end_time: string      // '-' if shift is still active
+    is_active: boolean
+    top_ups: number
+    shop_sales: number
+    refunds: number
+    center_expenses: number
+    total_profit: number
+}
+
 export type PeriodType = 'daily' | 'weekly' | 'monthly' | 'yearly'
 
 // ─── Report Data Params ───────────────────────────────────────────────────────
