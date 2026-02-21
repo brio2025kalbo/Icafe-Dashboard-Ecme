@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import Card from '@/components/ui/Card'
 import Select from '@/components/ui/Select'
 import GrowShrinkValue from '@/components/shared/GrowShrinkValue'
-import AbbreviateNumber from '@/components/shared/AbbreviateNumber'
 import Chart from '@/components/shared/Chart'
 import { useThemeStore } from '@/store/themeStore'
 import classNames from '@/utils/classNames'
@@ -127,7 +126,7 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     }}
                 />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
                 <StatisticCard
                     title="Total profit"
                     value={
@@ -168,23 +167,8 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     value={
                         <NumericFormat
                             displayType="text"
-                            value={data.totalOrder[selectedPeriod].value}
-                            thousandSeparator={true}
-                        />
-                    }
-                    growShrink={data.totalOrder[selectedPeriod].growShrink}
-                    iconClass="bg-emerald-200"
-                    icon={<TbShoppingBagCheck />}
-                    label="totalOrder"
-                    active={selectedCategory === 'totalOrder'}
-                    compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
-                    onClick={setSelectedCategory}
-                />
-                <StatisticCard
-                    title="Impression"
-                    value={
-                        <AbbreviateNumber
                             value={data.totalImpression[selectedPeriod].value}
+                            thousandSeparator={true}
                         />
                     }
                     growShrink={data.totalImpression[selectedPeriod].growShrink}
