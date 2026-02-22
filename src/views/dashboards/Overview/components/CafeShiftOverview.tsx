@@ -306,7 +306,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 <ShiftStatCard
                     label="Total Profit"
                     value={stats.total_profit}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbCurrencyDollar />}
                     iconBg="bg-emerald-100 text-emerald-600"
                     loading={loading}
@@ -315,7 +315,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 <ShiftStatCard
                     label="Top-ups"
                     value={stats.top_ups}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbArrowUpCircle />}
                     iconBg="bg-blue-100 text-blue-600"
                     loading={loading}
@@ -324,7 +324,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 <ShiftStatCard
                     label="Shop Sales"
                     value={stats.shop_sales}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbShoppingCart />}
                     iconBg="bg-violet-100 text-violet-600"
                     loading={loading}
@@ -333,7 +333,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 <ShiftStatCard
                     label="Refunds"
                     value={stats.refunds}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbReceiptRefund />}
                     iconBg="bg-red-100 text-red-500"
                     loading={loading}
@@ -342,7 +342,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 <ShiftStatCard
                     label="Center Expenses"
                     value={stats.center_expenses}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbBuildingStore />}
                     iconBg="bg-orange-100 text-orange-600"
                     loading={loading}

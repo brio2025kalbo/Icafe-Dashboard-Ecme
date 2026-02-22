@@ -10,7 +10,7 @@ import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_2, COLOR_4 } from '@/constants/chart.constant'
 import { options } from '../constants'
 import { NumericFormat } from 'react-number-format'
-import { TbCoin, TbShoppingBagCheck, TbEye } from 'react-icons/tb'
+import { TbCoin, TbShoppingBagCheck, TbEye, TbReceiptRefund, TbBuildingStore } from 'react-icons/tb'
 import type { ReactNode } from 'react'
 import type { StatisticData, Period, StatisticCategory } from '../types'
 
@@ -130,14 +130,14 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     }}
                 />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
                 <StatisticCard
                     title="Total profit"
                     value={
                         <NumericFormat
                             displayType="text"
                             value={combinedStats?.total_profit ?? data.totalProfit[selectedPeriod].value}
-                            prefix={'₱'}
+                            prefix={'\u20B1'}
                             thousandSeparator={true}
                             decimalScale={2}
                             fixedDecimalScale={true}
@@ -157,7 +157,7 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                         <NumericFormat
                             displayType="text"
                             value={combinedStats?.top_ups ?? data.totalOrder[selectedPeriod].value}
-                            prefix={'₱'}
+                            prefix={'\u20B1'}
                             thousandSeparator={true}
                             decimalScale={2}
                             fixedDecimalScale={true}
@@ -177,7 +177,7 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                         <NumericFormat
                             displayType="text"
                             value={combinedStats?.shop_sales ?? data.totalOrder[selectedPeriod].value}
-                            prefix={'₱'}
+                            prefix={'\u20B1'}
                             thousandSeparator={true}
                             decimalScale={2}
                             fixedDecimalScale={true}
@@ -188,6 +188,46 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     icon={<TbShoppingBagCheck />}
                     label="totalOrder"
                     active={selectedCategory === 'totalOrder'}
+                    compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
+                    onClick={setSelectedCategory}
+                />
+                <StatisticCard
+                    title="Refunds"
+                    value={
+                        <NumericFormat
+                            displayType="text"
+                            value={combinedStats?.refunds ?? 0}
+                            prefix={'\u20B1'}
+                            thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
+                        />
+                    }
+                    growShrink={data.totalProfit[selectedPeriod].growShrink}
+                    iconClass="bg-red-200"
+                    icon={<TbReceiptRefund />}
+                    label="totalProfit"
+                    active={selectedCategory === 'totalProfit'}
+                    compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
+                    onClick={setSelectedCategory}
+                />
+                <StatisticCard
+                    title="Center Expenses"
+                    value={
+                        <NumericFormat
+                            displayType="text"
+                            value={combinedStats?.center_expenses ?? 0}
+                            prefix={'\u20B1'}
+                            thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
+                        />
+                    }
+                    growShrink={data.totalProfit[selectedPeriod].growShrink}
+                    iconClass="bg-orange-200"
+                    icon={<TbBuildingStore />}
+                    label="totalProfit"
+                    active={selectedCategory === 'totalProfit'}
                     compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
                     onClick={setSelectedCategory}
                 />
