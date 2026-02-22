@@ -25,13 +25,10 @@ const appConfig: AppConfig = {
     unAuthenticatedEntryPath: '/sign-in',
     locale: 'en',
     accessTokenPersistStrategy: 'localStorage',
-    enableMock: true,
+    enableMock: false,
     activeNavTranslation: false,
     reportsApiPrefix: '/icafe-api',
-    initialCafes: [
-        { id: 'cafe1', name: 'Cafe A', cafeId: '', apiKey: '' },
-        { id: 'cafe2', name: 'Cafe B', cafeId: '', apiKey: '' },
-    ],
+    initialCafes: [],
 };
 
 export default appConfig;

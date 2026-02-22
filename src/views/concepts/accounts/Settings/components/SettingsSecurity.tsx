@@ -1,42 +1,21 @@
-import { useState, useRef } from 'react'
-import Avatar from '@/components/ui/Avatar'
+import { useState } from 'react'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import { Form, FormItem } from '@/components/ui/Form'
-import classNames from '@/utils/classNames'
-import sleep from '@/utils/sleep'
-import isLastChild from '@/utils/isLastChild'
+import Notification from '@/components/ui/Notification'
+import toast from '@/components/ui/toast'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
+import { useAuth } from '@/auth'
+import { TOKEN_NAME_IN_STORAGE } from '@/constants/api.constant'
 
 type PasswordSchema = {
     currentPassword: string
     newPassword: string
     confirmNewPassword: string
 }
-
-const authenticatorList = [
-    {
-        label: 'Google Authenticator',
-        value: 'googleAuthenticator',
-        img: '/img/others/google.png',
-        desc: 'Using Google Authenticator app generates time-sensitive codes for secure logins.',
-    },
-    {
-        label: 'Okta Verify',
-        value: 'oktaVerify',
-        img: '/img/others/okta.png',
-        desc: 'Receive push notifications from Okta Verify app on your phone for quick login approval.',
-    },
-    {
-        label: 'E Mail verification',
-        value: 'emailVerification',
-        img: '/img/others/email.png',
-        desc: 'Unique codes sent to email for confirming logins.',
-    },
-]
 
 const validationSchema = z
     .object({
@@ -45,44 +24,77 @@ const validationSchema = z
             .min(1, { message: 'Please enter your current password!' }),
         newPassword: z
             .string()
-            .min(1, { message: 'Please enter your new password!' }),
+            .min(6, { message: 'New password must be at least 6 characters!' }),
         confirmNewPassword: z
             .string()
             .min(1, { message: 'Please confirm your new password!' }),
     })
     .refine((data) => data.confirmNewPassword === data.newPassword, {
-        message: 'Password not match',
+        message: 'Passwords do not match',
         path: ['confirmNewPassword'],
     })
 
 const SettingsSecurity = () => {
-    const [selected2FaType, setSelected2FaType] = useState(
-        'googleAuthenticator',
-    )
+    const { user } = useAuth()
     const [confirmationOpen, setConfirmationOpen] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
-
-    const formRef = useRef<HTMLFormElement>(null)
+    const [pendingValues, setPendingValues] = useState<PasswordSchema | null>(null)
 
     const {
-        getValues,
         handleSubmit,
+        reset,
         formState: { errors },
         control,
     } = useForm<PasswordSchema>({
         resolver: zodResolver(validationSchema),
     })
 
-    const handlePostSubmit = async () => {
-        setIsSubmitting(true)
-        await sleep(1000)
-        console.log('getValues', getValues())
-        setConfirmationOpen(false)
-        setIsSubmitting(false)
+    const onSubmit = async (values: PasswordSchema) => {
+        setPendingValues(values)
+        setConfirmationOpen(true)
     }
 
-    const onSubmit = async () => {
-        setConfirmationOpen(true)
+    const handlePostSubmit = async () => {
+        if (!pendingValues || !user?.userId) return
+        setIsSubmitting(true)
+        try {
+            const token = localStorage.getItem(TOKEN_NAME_IN_STORAGE) || ''
+            const res = await fetch(`/api/users/${user.userId}/password`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    currentPassword: pendingValues.currentPassword,
+                    newPassword: pendingValues.newPassword,
+                }),
+            })
+            const data = await res.json()
+            if (!res.ok || !data.ok) {
+                toast.push(
+                    <Notification type="danger" title="Error">
+                        {data.error || 'Failed to change password'}
+                    </Notification>
+                )
+            } else {
+                toast.push(
+                    <Notification type="success" title="Password updated">
+                        Your password has been changed. Please sign in again.
+                    </Notification>
+                )
+                reset()
+                // Force re-login since all sessions are revoked on password change
+                setTimeout(() => {
+                    localStorage.removeItem(TOKEN_NAME_IN_STORAGE)
+                    window.location.href = '/sign-in'
+                }, 2000)
+            }
+        } finally {
+            setIsSubmitting(false)
+            setConfirmationOpen(false)
+            setPendingValues(null)
+        }
     }
 
     return (
@@ -94,11 +106,7 @@ const SettingsSecurity = () => {
                     Keep it safe, keep it secure!
                 </p>
             </div>
-            <Form
-                ref={formRef}
-                className="mb-8"
-                onSubmit={handleSubmit(onSubmit)}
-            >
+            <Form className="mb-8" onSubmit={handleSubmit(onSubmit)}>
                 <FormItem
                     label="Current password"
                     invalid={Boolean(errors.currentPassword)}
@@ -171,67 +179,11 @@ const SettingsSecurity = () => {
                 onRequestClose={() => setConfirmationOpen(false)}
                 onCancel={() => setConfirmationOpen(false)}
             >
-                <p>Are you sure you want to change your password?</p>
-            </ConfirmDialog>
-            <div className="mb-8">
-                <h4>2-Step verification</h4>
                 <p>
-                    Your account holds great value to hackers. Enable two-step
-                    verification to safeguard your account!
+                    Are you sure you want to change your password? You will be
+                    signed out and need to sign in again with the new password.
                 </p>
-                <div className="mt-8">
-                    {authenticatorList.map((authOption, index) => (
-                        <div
-                            key={authOption.value}
-                            className={classNames(
-                                'py-6 border-gray-200 dark:border-gray-600',
-                                !isLastChild(authenticatorList, index) &&
-                                    'border-b',
-                            )}
-                        >
-                            <div className="flex items-center justify-between gap-4">
-                                <div className="flex items-center gap-4">
-                                    <Avatar
-                                        size={35}
-                                        className="bg-transparent"
-                                        src={authOption.img}
-                                    />
-                                    <div>
-                                        <h6>{authOption.label}</h6>
-                                        <span>{authOption.desc}</span>
-                                    </div>
-                                </div>
-                                <div>
-                                    {selected2FaType === authOption.value ? (
-                                        <Button
-                                            size="sm"
-                                            customColorClass={() =>
-                                                'border-success ring-1 ring-success text-success hover:border-success hover:ring-success hover:text-success bg-transparent'
-                                            }
-                                            onClick={() =>
-                                                setSelected2FaType('')
-                                            }
-                                        >
-                                            Activated
-                                        </Button>
-                                    ) : (
-                                        <Button
-                                            size="sm"
-                                            onClick={() =>
-                                                setSelected2FaType(
-                                                    authOption.value,
-                                                )
-                                            }
-                                        >
-                                            Enable
-                                        </Button>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
+            </ConfirmDialog>
         </div>
     )
 }

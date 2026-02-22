@@ -1,4 +1,5 @@
 import { useCafeStore } from '@/store/cafeStore'
+import { useAuth } from '@/auth'
 import IcafeReportChart from './IcafeReportChart'
 import CafeSelector from './CafeSelector'
 import CafeSettingsDialog from './CafeSettingsDialog'
@@ -6,6 +7,8 @@ import CafeSettingsDialog from './CafeSettingsDialog'
 const IcafeReportsSection = () => {
     const cafes = useCafeStore((state) => state.cafes)
     const selectedCafeId = useCafeStore((state) => state.selectedCafeId)
+    const { user } = useAuth()
+    const isAdmin = user?.authority?.includes('admin')
 
     const selectedCafe = cafes.find((c) => c.id === selectedCafeId)
 
@@ -16,14 +19,16 @@ const IcafeReportsSection = () => {
                 <h4 className="mb-0">iCafeCloud Reports</h4>
                 <div className="flex items-center gap-2">
                     <CafeSelector />
-                    <CafeSettingsDialog />
+                    {isAdmin && <CafeSettingsDialog />}
                 </div>
             </div>
 
             {/* No cafes configured */}
             {cafes.length === 0 && (
                 <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-600 p-8 text-center text-gray-400 text-sm">
-                    No cafes configured. Click the settings icon to add a cafe.
+                    {isAdmin
+                        ? 'No cafes configured. Click the settings icon to add a cafe.'
+                        : 'No cafes available. Please contact your administrator.'}
                 </div>
             )}
 

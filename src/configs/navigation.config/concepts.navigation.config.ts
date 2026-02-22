@@ -79,7 +79,7 @@ const conceptsNavigationConfig: NavigationTree[] = [
                         translateKey: 'nav.conceptsAccount.rolesPermissions',
                         icon: 'accountRoleAndPermission',
                         type: NAV_ITEM_TYPE_ITEM,
-                        authority: [ADMIN, USER],
+                        authority: [ADMIN], // Admin only
                         meta: {
                             description: {
                                 translateKey:
