@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Tabs } from '@/components/ui'
+import { Tabs, Notification, toast } from '@/components/ui'
 import {
     TbCurrencyDollar,
     TbArrowUpCircle,
@@ -9,6 +9,7 @@ import {
     TbCalendarOff,
     TbChevronLeft,
     TbChevronRight,
+    TbAlertTriangle,
 } from 'react-icons/tb'
 import ShiftStatCard from './ShiftStatCard'
 import StaffBreakdownTable from './StaffBreakdownTable'
@@ -22,6 +23,7 @@ import {
 import { useRef } from 'react'
 import type { PeriodType, ShiftStats, ShiftBreakdownRow } from '../icafeTypes'
 import type { Cafe } from '@/@types/cafe'
+import classNames from 'classnames'
 
 type Props = {
     cafe: Cafe
@@ -36,10 +38,6 @@ const EMPTY_STATS: ShiftStats = {
     center_expenses: 0,
     refunds: 0,
     shift_count: 0,
-}
-
-function formatCurrency(val: number): string {
-    return val.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function addDaysToStr(dateStr: string, n: number): string {
@@ -61,7 +59,15 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
     const [refreshing, setRefreshing] = useState(false) // silent background refresh
     const [error, setError] = useState<string | null>(null)
     const [noShifts, setNoShifts] = useState(false)
+    const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+    const [now, setNow] = useState(new Date())
     const hasLoadedOnce = useRef(false)
+
+    // Update 'now' every minute to refresh the "Updated X ago" text
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 60000)
+        return () => clearInterval(timer)
+    }, [])
 
     const fetchStats = useCallback(async () => {
         if (!cafe.cafeId || !cafe.apiKey) {
@@ -103,15 +109,24 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 setStats(result)
                 setBreakdown(rows)
             }
+            setLastUpdated(new Date())
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : 'Failed to load shift data.'
             setError(msg)
+            
+            // Show toast notification on failure
+            toast.push(
+                <Notification title="Refresh Failed" type="danger" duration={5000}>
+                    Failed to refresh {cafe.name}. Showing data from {lastUpdated?.toLocaleTimeString() || 'earlier'}.
+                </Notification>,
+                { placement: 'top-end' }
+            )
         } finally {
             setLoading(false)
             setRefreshing(false)
             hasLoadedOnce.current = true
         }
-    }, [cafe.id, cafe.cafeId, cafe.apiKey, period, selectedDate])
+    }, [cafe.id, cafe.cafeId, cafe.apiKey, cafe.name, period, selectedDate, lastUpdated])
 
     useEffect(() => {
         fetchStats()
@@ -133,11 +148,37 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
         ? getBusinessDayRange(selectedDate)
         : getDateRange(period)
 
+    // Stale data logic
+    const minutesSinceUpdate = lastUpdated ? Math.floor((now.getTime() - lastUpdated.getTime()) / 60000) : 0
+    const isStale = minutesSinceUpdate >= 2
+    const isVeryStale = minutesSinceUpdate >= 10
+
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 relative">
+            {/* Very Stale Overlay */}
+            {isVeryStale && !loading && (
+                <div className="absolute inset-0 z-10 bg-white/40 dark:bg-gray-900/40 backdrop-blur-[1px] rounded-2xl flex items-center justify-center pointer-events-none">
+                    <div className="bg-amber-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-pulse">
+                        <TbAlertTriangle className="text-xl" />
+                        <span className="font-bold text-sm uppercase tracking-wider">Stale Data</span>
+                    </div>
+                </div>
+            )}
+
             {showTitle && (
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                    <h6 className="font-semibold text-gray-700 dark:text-gray-200">{cafe.name}</h6>
+                    <div className="flex flex-col">
+                        <h6 className="font-semibold text-gray-700 dark:text-gray-200">{cafe.name}</h6>
+                        {lastUpdated && (
+                            <span className={classNames(
+                                "text-[10px] font-medium transition-colors",
+                                isStale ? "text-amber-500" : "text-gray-400"
+                            )}>
+                                {isStale && <TbAlertTriangle className="inline mr-1" />}
+                                Updated {minutesSinceUpdate === 0 ? 'just now' : `${minutesSinceUpdate}m ago`}
+                            </span>
+                        )}
+                    </div>
                     <div className="flex items-center gap-2">
                         {!loading && stats.shift_count > 0 && (
                             <span className="text-xs text-gray-400">

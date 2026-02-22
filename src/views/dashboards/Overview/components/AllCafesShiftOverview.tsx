@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Tabs } from '@/components/ui'
+import { Tabs, Notification, toast } from '@/components/ui'
 import {
     TbCurrencyDollar,
     TbArrowUpCircle,
@@ -9,6 +9,7 @@ import {
     TbCalendarOff,
     TbChevronLeft,
     TbChevronRight,
+    TbAlertTriangle,
 } from 'react-icons/tb'
 import ShiftStatCard from './ShiftStatCard'
 import { apiGetShiftStats } from '@/services/ReportsService'
@@ -21,6 +22,7 @@ import {
 import { useRef } from 'react'
 import { useCafeStore } from '@/store/cafeStore'
 import type { PeriodType, ShiftStats } from '../icafeTypes'
+import classNames from 'classnames'
 
 const EMPTY_STATS: ShiftStats = {
     total_profit: 0,
@@ -29,10 +31,6 @@ const EMPTY_STATS: ShiftStats = {
     center_expenses: 0,
     refunds: 0,
     shift_count: 0,
-}
-
-function formatCurrency(val: number): string {
-    return val.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function addDaysToStr(dateStr: string, n: number): string {
@@ -55,7 +53,15 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
     const [loading, setLoading] = useState(false)   // first-load only
     const [refreshing, setRefreshing] = useState(false) // silent background refresh
     const [errors, setErrors] = useState<string[]>([])
+    const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+    const [now, setNow] = useState(new Date())
     const hasLoadedOnce = useRef(false)
+
+    // Update 'now' every minute to refresh the "Updated X ago" text
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 60000)
+        return () => clearInterval(timer)
+    }, [])
 
     const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
 
@@ -110,8 +116,19 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
         setLoading(false)
         setRefreshing(false)
         hasLoadedOnce.current = true
+        setLastUpdated(new Date())
+
+        // Show toast notification if any cafe failed to refresh
+        if (errs.length > 0) {
+            toast.push(
+                <Notification title="Partial Refresh Failed" type="warning" duration={5000}>
+                    {errs.length} cafe{errs.length > 1 ? 's' : ''} failed to refresh. Combined totals may be incomplete.
+                </Notification>,
+                { placement: 'top-end' }
+            )
+        }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cafes, period, selectedDate]) // eslint-disable-line
+    }, [cafes, period, selectedDate, lastUpdated]) // eslint-disable-line
 
     // Initial + period/date change fetch
     useEffect(() => {
@@ -135,19 +152,45 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
 
     const noShifts = !loading && errors.length === 0 && combined.shift_count === 0 && validCafes.length > 0
 
+    // Stale data logic
+    const minutesSinceUpdate = lastUpdated ? Math.floor((now.getTime() - lastUpdated.getTime()) / 60000) : 0
+    const isStale = minutesSinceUpdate >= 2
+    const isVeryStale = minutesSinceUpdate >= 10
+
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 relative">
+            {/* Very Stale Overlay */}
+            {isVeryStale && !loading && (
+                <div className="absolute inset-0 z-10 bg-white/40 dark:bg-gray-900/40 backdrop-blur-[1px] rounded-2xl flex items-center justify-center pointer-events-none">
+                    <div className="bg-amber-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-pulse">
+                        <TbAlertTriangle className="text-xl" />
+                        <span className="font-bold text-sm uppercase tracking-wider">Stale Data</span>
+                    </div>
+                </div>
+            )}
+
             <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                     <h5 className="font-bold text-gray-800 dark:text-white">All Cafes — Combined</h5>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                        {validCafes.length} cafe{validCafes.length !== 1 ? 's' : ''}
-                        {combined.shift_count > 0 && ` · ${combined.shift_count} shift${combined.shift_count !== 1 ? 's' : ''}`}
-                        {' · '}
-                        {range.date_start === range.date_end
-                            ? range.date_start
-                            : `${range.date_start} – ${range.date_end}`}
-                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-xs text-gray-400">
+                            {validCafes.length} cafe{validCafes.length !== 1 ? 's' : ''}
+                            {combined.shift_count > 0 && ` · ${combined.shift_count} shift${combined.shift_count !== 1 ? 's' : ''}`}
+                            {' · '}
+                            {range.date_start === range.date_end
+                                ? range.date_start
+                                : `${range.date_start} – ${range.date_end}`}
+                        </p>
+                        {lastUpdated && (
+                            <span className={classNames(
+                                "text-[10px] font-medium transition-colors",
+                                isStale ? "text-amber-500" : "text-gray-400"
+                            )}>
+                                {isStale && <TbAlertTriangle className="inline mr-1" />}
+                                Updated {minutesSinceUpdate === 0 ? 'just now' : `${minutesSinceUpdate}m ago`}
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
 
