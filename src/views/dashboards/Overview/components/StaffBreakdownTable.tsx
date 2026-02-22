@@ -28,7 +28,7 @@ const AnimatedCell = ({
     const animated = useCountUp(value)
     return (
         <td className={`px-3 py-2 text-right whitespace-nowrap ${className ?? ''}`}>
-            ₱{fmt(animated)}
+            {'\u20B1'}{fmt(animated)}
         </td>
     )
 }

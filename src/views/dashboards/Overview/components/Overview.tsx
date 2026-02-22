@@ -1,17 +1,25 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Card from '@/components/ui/Card'
 import Select from '@/components/ui/Select'
 import GrowShrinkValue from '@/components/shared/GrowShrinkValue'
 import AbbreviateNumber from '@/components/shared/AbbreviateNumber'
 import Chart from '@/components/shared/Chart'
 import { useThemeStore } from '@/store/themeStore'
+import { useCafeStore } from '@/store/cafeStore'
 import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_2, COLOR_4 } from '@/constants/chart.constant'
 import { options } from '../constants'
 import { NumericFormat } from 'react-number-format'
-import { TbCoin, TbShoppingBagCheck, TbEye } from 'react-icons/tb'
+import { TbCoin, TbShoppingBagCheck, TbEye, TbReceiptRefund, TbBuildingStore } from 'react-icons/tb'
+import { apiGetShiftStats } from '@/services/ReportsService'
+import {
+    getDateRange,
+    getBusinessDayRange,
+    getTodayBusinessDateStr,
+} from '../utils/periodUtils'
 import type { ReactNode } from 'react'
-import type { StatisticData, Period, StatisticCategory } from '../types'
+import type { StatisticData, Period, EcommercePeriod, StatisticCategory } from '../types'
+import type { PeriodType, ShiftStats } from '../icafeTypes'
 
 type StatisticCardProps = {
     title: string
@@ -84,11 +92,38 @@ const StatisticCard = (props: StatisticCardProps) => {
     )
 }
 
+const EMPTY_STATS: ShiftStats = {
+    total_profit: 0,
+    top_ups: 0,
+    shop_sales: 0,
+    center_expenses: 0,
+    refunds: 0,
+    shift_count: 0,
+}
+
+/** Map the Overview dropdown period to PeriodType used by the API */
+const periodToPeriodType: Record<Period, PeriodType> = {
+    thisDay: 'daily',
+    thisWeek: 'weekly',
+    thisMonth: 'monthly',
+    thisYear: 'yearly',
+}
+
+/** Map Period to the nearest ecommerce period (for chart/growShrink fallback) */
+function toEcommercePeriod(p: Period): EcommercePeriod {
+    if (p === 'thisDay') return 'thisMonth'
+    return p
+}
+
 const Overview = ({ data }: StatisticGroupsProps) => {
     const [selectedCategory, setSelectedCategory] =
         useState<StatisticCategory>('totalProfit')
 
-    const [selectedPeriod, setSelectedPeriod] = useState<Period>('thisMonth')
+    const [selectedPeriod, setSelectedPeriod] = useState<Period>('thisDay')
+
+    const cafes = useCafeStore((s) => s.cafes)
+    const [localStats, setLocalStats] = useState<ShiftStats>(EMPTY_STATS)
+    const [loading, setLoading] = useState(false)
 
     const sideNavCollapse = useThemeStore(
         (state) => state.layout.sideNavCollapse,
@@ -106,6 +141,55 @@ const Overview = ({ data }: StatisticGroupsProps) => {
             window.dispatchEvent(new Event('resize'))
         }
     }, [sideNavCollapse])
+
+    const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+
+    const fetchStats = useCallback(async () => {
+        if (validCafes.length === 0) {
+            setLocalStats(EMPTY_STATS)
+            return
+        }
+
+        setLoading(true)
+
+        const pt = periodToPeriodType[selectedPeriod]
+        const range = pt === 'daily'
+            ? getBusinessDayRange(getTodayBusinessDateStr())
+            : getDateRange(pt)
+
+        const results = await Promise.allSettled(
+            validCafes.map((c) =>
+                apiGetShiftStats(c.id, {
+                    date_start: range.date_start,
+                    date_end:   range.date_end,
+                    time_start: range.time_start,
+                    time_end:   range.time_end,
+                }),
+            ),
+        )
+
+        const totals = results.reduce<ShiftStats>((acc, res) => {
+            if (res.status === 'rejected') return acc
+            const s = res.value
+            return {
+                total_profit:    acc.total_profit + s.total_profit,
+                top_ups:         acc.top_ups + s.top_ups,
+                shop_sales:      acc.shop_sales + s.shop_sales,
+                center_expenses: acc.center_expenses + s.center_expenses,
+                refunds:         acc.refunds + s.refunds,
+                shift_count:     acc.shift_count + s.shift_count,
+            }
+        }, { ...EMPTY_STATS })
+
+        setLocalStats(totals)
+        setLoading(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cafes, selectedPeriod])
+
+    useEffect(() => { fetchStats() }, [fetchStats])
+
+    /** Safe ecommerce period for chart/growShrink data */
+    const ecomPeriod = toEcommercePeriod(selectedPeriod)
 
     return (
         <Card>
@@ -127,23 +211,25 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     }}
                 />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
                 <StatisticCard
                     title="Total profit"
                     value={
                         <NumericFormat
                             displayType="text"
-                            value={data.totalProfit[selectedPeriod].value}
-                            prefix={'$'}
+                            value={localStats.total_profit}
+                            prefix={'\u20B1'}
                             thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
                         />
                     }
-                    growShrink={data.totalProfit[selectedPeriod].growShrink}
+                    growShrink={data.totalProfit[ecomPeriod].growShrink}
                     iconClass="bg-sky-200"
                     icon={<TbCoin />}
                     label="totalProfit"
                     active={selectedCategory === 'totalProfit'}
-                    compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
+                    compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
                     onClick={setSelectedCategory}
                 />
                 <StatisticCard
@@ -151,55 +237,101 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     value={
                         <NumericFormat
                             displayType="text"
-                            value={data.totalOrder[selectedPeriod].value}
+                            value={localStats.top_ups}
+                            prefix={'\u20B1'}
                             thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
                         />
                     }
-                    growShrink={data.totalOrder[selectedPeriod].growShrink}
+                    growShrink={data.totalOrder[ecomPeriod].growShrink}
                     iconClass="bg-emerald-200"
                     icon={<TbShoppingBagCheck />}
                     label="totalOrder"
                     active={selectedCategory === 'totalOrder'}
-                    compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
+                    compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
                     onClick={setSelectedCategory}
                 />
                 <StatisticCard
-                    title="F&B Sales"
+                    title="Shop Sales"
                     value={
                         <NumericFormat
                             displayType="text"
-                            value={data.totalOrder[selectedPeriod].value}
+                            value={localStats.shop_sales}
+                            prefix={'\u20B1'}
                             thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
                         />
                     }
-                    growShrink={data.totalOrder[selectedPeriod].growShrink}
+                    growShrink={data.totalOrder[ecomPeriod].growShrink}
                     iconClass="bg-emerald-200"
                     icon={<TbShoppingBagCheck />}
                     label="totalOrder"
                     active={selectedCategory === 'totalOrder'}
-                    compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
+                    compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
+                    onClick={setSelectedCategory}
+                />
+                <StatisticCard
+                    title="Refunds"
+                    value={
+                        <NumericFormat
+                            displayType="text"
+                            value={localStats.refunds}
+                            prefix={'\u20B1'}
+                            thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
+                        />
+                    }
+                    growShrink={data.totalProfit[ecomPeriod].growShrink}
+                    iconClass="bg-red-200"
+                    icon={<TbReceiptRefund />}
+                    label="totalProfit"
+                    active={selectedCategory === 'totalProfit'}
+                    compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
+                    onClick={setSelectedCategory}
+                />
+                <StatisticCard
+                    title="Center Expenses"
+                    value={
+                        <NumericFormat
+                            displayType="text"
+                            value={localStats.center_expenses}
+                            prefix={'\u20B1'}
+                            thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
+                        />
+                    }
+                    growShrink={data.totalProfit[ecomPeriod].growShrink}
+                    iconClass="bg-orange-200"
+                    icon={<TbBuildingStore />}
+                    label="totalProfit"
+                    active={selectedCategory === 'totalProfit'}
+                    compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
                     onClick={setSelectedCategory}
                 />
                 <StatisticCard
                     title="Impression"
                     value={
                         <AbbreviateNumber
-                            value={data.totalImpression[selectedPeriod].value}
+                            value={data.totalImpression[ecomPeriod].value}
                         />
                     }
-                    growShrink={data.totalImpression[selectedPeriod].growShrink}
+                    growShrink={data.totalImpression[ecomPeriod].growShrink}
                     iconClass="bg-purple-200"
                     icon={<TbEye />}
                     label="totalImpression"
                     active={selectedCategory === 'totalImpression'}
-                    compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
+                    compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
                     onClick={setSelectedCategory}
                 />
             </div>
             <Chart
                 type="line"
-                series={data[selectedCategory][selectedPeriod].chartData.series}
-                xAxis={data[selectedCategory][selectedPeriod].chartData.date}
+                series={data[selectedCategory][ecomPeriod].chartData.series}
+                xAxis={data[selectedCategory][ecomPeriod].chartData.date}
                 height="410px"
                 customOptions={{
                     legend: { show: false },

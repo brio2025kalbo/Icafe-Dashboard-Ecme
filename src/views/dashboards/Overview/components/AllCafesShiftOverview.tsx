@@ -50,6 +50,7 @@ type Props = { refreshSignal?: number }
 
 const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
     const cafes = useCafeStore((s) => s.cafes)
+    const setCombinedStats = useCafeStore((s) => s.setCombinedStats)
     const [period, setPeriod] = useState<PeriodType>('daily')
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [combined, setCombined] = useState<ShiftStats>(EMPTY_STATS)
@@ -119,6 +120,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
         }, { ...EMPTY_STATS })
 
         setCombined(totals)
+        setCombinedStats(totals)
         setErrors(errs)
         setLoading(false)
         hasLoadedOnce.current = true
@@ -281,7 +283,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                 <ShiftStatCard
                     label="Total Profit"
                     value={combined.total_profit}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbCurrencyDollar />}
                     iconBg="bg-emerald-100 text-emerald-600"
                     loading={loading}
@@ -289,7 +291,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                 <ShiftStatCard
                     label="Top-ups"
                     value={combined.top_ups}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbArrowUpCircle />}
                     iconBg="bg-blue-100 text-blue-600"
                     loading={loading}
@@ -297,7 +299,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                 <ShiftStatCard
                     label="Shop Sales"
                     value={combined.shop_sales}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbShoppingCart />}
                     iconBg="bg-violet-100 text-violet-600"
                     loading={loading}
@@ -305,7 +307,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                 <ShiftStatCard
                     label="Refunds"
                     value={combined.refunds}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbReceiptRefund />}
                     iconBg="bg-red-100 text-red-500"
                     loading={loading}
@@ -313,7 +315,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                 <ShiftStatCard
                     label="Center Expenses"
                     value={combined.center_expenses}
-                    prefix="₱"
+                    prefix={"\u20B1"}
                     icon={<TbBuildingStore />}
                     iconBg="bg-orange-100 text-orange-600"
                     loading={loading}
