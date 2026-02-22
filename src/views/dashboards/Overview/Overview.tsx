@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react'
 import Loading from '@/components/shared/Loading'
 import OverviewStats from './components/Overview'
 import CustomerDemographic from './components/CustomerDemographic'
@@ -22,6 +23,11 @@ const SalesDashboard = () => {
         },
     )
 
+    const [overviewRefreshKey, setOverviewRefreshKey] = useState(0)
+    const handleShiftRefresh = useCallback(() => {
+        setOverviewRefreshKey((k) => k + 1)
+    }, [])
+
     return (
         <div className="flex flex-col gap-6">
             {/* ── iCafeCloud Shift Stats Overview ── */}
@@ -29,7 +35,7 @@ const SalesDashboard = () => {
                 <div className="flex items-center gap-2 px-1">
                     <h5 className="font-bold text-gray-800 dark:text-white">iCafeCloud Overview</h5>
                 </div>
-                <IcafeShiftSection />
+                <IcafeShiftSection onRefresh={handleShiftRefresh} />
             </div>
 
             {/* ── iCafeCloud Live Reports Charts ── */}
@@ -41,7 +47,7 @@ const SalesDashboard = () => {
                     <div className="flex flex-col gap-4 max-w-full overflow-x-hidden">
                         <div className="flex flex-col xl:flex-row gap-4">
                             <div className="flex flex-col gap-4 flex-1 xl:col-span-3">
-                                <OverviewStats data={data.statisticData} />
+                                <OverviewStats data={data.statisticData} refreshSignal={overviewRefreshKey} />
                                 <CustomerDemographic
                                     data={data.customerDemographic}
                                 />
