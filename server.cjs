@@ -159,6 +159,19 @@ function requireAdmin(req, res, next) {
 // ── Body parser ──────────────────────────────────────────────────────────────
 app.use(express.json())
 
+// ── Request logger ───────────────────────────────────────────────────────────
+// Logs every incoming request: timestamp, method, path, IP
+// Skips noisy static-asset requests (js/css/png/ico etc.)
+app.use((req, _res, next) => {
+    const skip = /\.(js|css|png|jpg|ico|svg|woff2?|ttf|map)$/i.test(req.path)
+    if (!skip) {
+        const ts = new Date().toISOString().replace('T',' ').slice(0,19)
+        const ip = getIp(req)
+        console.log(`[REQ] ${ts} ${req.method} ${req.path} — ${ip}`)
+    }
+    next()
+})
+
 // ── Auth API ─────────────────────────────────────────────────────────────────
 
 // POST /sign-in  (also aliased as /api/sign-in for Axios baseURL compatibility)
@@ -816,6 +829,8 @@ app.use('/icafe-api', async (req, res) => {
 
     const cached = cache.get(cacheKey)
     if (cached && cached.expiresAt > now) {
+        const ttlLeft = Math.round((cached.expiresAt - now) / 1000)
+        console.log(`[PROXY] CACHE HIT  ${upstreamPath} (expires in ${ttlLeft}s)`)
         res.status(cached.statusCode)
         res.set('Content-Type', 'application/json')
         res.set('X-Cache', 'HIT')
@@ -823,6 +838,7 @@ app.use('/icafe-api', async (req, res) => {
     }
 
     if (inFlight.has(cacheKey)) {
+        console.log(`[PROXY] DEDUP      ${upstreamPath} (waiting for in-flight request)`)
         try {
             const result = await inFlight.get(cacheKey)
             res.status(result.statusCode)
@@ -830,10 +846,12 @@ app.use('/icafe-api', async (req, res) => {
             res.set('X-Cache', 'DEDUP')
             return res.send(result.body)
         } catch (err) {
+            console.error(`[PROXY] DEDUP ERR  ${upstreamPath} — ${err.message}`)
             return res.status(502).json({ code: 502, message: 'Upstream error: ' + err.message })
         }
     }
 
+    console.log(`[PROXY] MISS       ${upstreamPath} → fetching upstream`)
     const fetchPromise = fetchUpstream(targetUrl, req.headers)
     inFlight.set(cacheKey, fetchPromise)
 
@@ -844,6 +862,9 @@ app.use('/icafe-api', async (req, res) => {
         if (result.statusCode === 200) {
             const ttl = getTtl(upstreamPath)
             cache.set(cacheKey, { body: result.body, statusCode: result.statusCode, expiresAt: now + ttl })
+            console.log(`[PROXY] CACHED     ${upstreamPath} (TTL ${ttl/1000}s, status ${result.statusCode})`)
+        } else {
+            console.warn(`[PROXY] UPSTREAM   ${upstreamPath} — status ${result.statusCode} (not cached)`)
         }
 
         res.status(result.statusCode)
@@ -853,6 +874,7 @@ app.use('/icafe-api', async (req, res) => {
 
     } catch (err) {
         inFlight.delete(cacheKey)
+        console.error(`[PROXY] ERROR      ${upstreamPath} — ${err.message}`)
         return res.status(502).json({ code: 502, message: 'Proxy error: ' + err.message })
     }
 })
