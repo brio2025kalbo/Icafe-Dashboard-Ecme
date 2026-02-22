@@ -757,6 +757,14 @@ setInterval(() => {
     }
 }, 60 * 1000)
 
+// ── Dashboard data endpoints (template demo data) ───────────────────────────
+// The ecommerce stats section uses this endpoint. Since it's template demo
+// data unrelated to iCafeCloud, we serve the original mock data from the server.
+const ecommerceDashboardData = require('./data/ecommerce_dashboard.json')
+app.get('/api/dashboard/ecommerce', requireAuth, (req, res) => {
+    res.json(ecommerceDashboardData)
+})
+
 // ── Serve the Vite production build ──────────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'build')))
 app.use((req, res) => {
