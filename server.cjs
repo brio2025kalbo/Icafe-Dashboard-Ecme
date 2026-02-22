@@ -151,8 +151,8 @@ app.use(express.json())
 
 // ── Auth API ─────────────────────────────────────────────────────────────────
 
-// POST /sign-in
-app.post('/sign-in', async (req, res) => {
+// POST /sign-in  (also aliased as /api/sign-in for Axios baseURL compatibility)
+const handleSignIn = async (req, res) => {
     const { email, password } = req.body || {}
     if (!email || !password)
         return res.status(400).json({ message: 'Email and password required' })
@@ -194,10 +194,12 @@ app.post('/sign-in', async (req, res) => {
         console.error('[AUTH] sign-in error:', e.message)
         res.status(500).json({ message: 'Server error' })
     }
-})
+}
+app.post('/sign-in', handleSignIn)
+app.post('/api/sign-in', handleSignIn)
 
-// POST /sign-up
-app.post('/sign-up', async (req, res) => {
+// POST /sign-up  (also aliased as /api/sign-up)
+const handleSignUp = async (req, res) => {
     const { email, password, userName } = req.body || {}
     if (!email || !password || !userName)
         return res.status(400).json({ message: 'email, password, userName required' })
@@ -235,10 +237,12 @@ app.post('/sign-up', async (req, res) => {
         console.error('[AUTH] sign-up error:', e.message)
         res.status(500).json({ message: 'Server error' })
     }
-})
+}
+app.post('/sign-up', handleSignUp)
+app.post('/api/sign-up', handleSignUp)
 
-// POST /sign-out
-app.post('/sign-out', async (req, res) => {
+// POST /sign-out  (also aliased as /api/sign-out)
+const handleSignOut = async (req, res) => {
     const authHeader = req.headers['authorization'] || ''
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
     if (token) {
@@ -251,7 +255,9 @@ app.post('/sign-out', async (req, res) => {
         } catch { /* ignore */ }
     }
     res.json({ ok: true })
-})
+}
+app.post('/sign-out', handleSignOut)
+app.post('/api/sign-out', handleSignOut)
 
 // GET /api/auth/me — validate token and return current user
 app.get('/api/auth/me', requireAuth, (req, res) => {
