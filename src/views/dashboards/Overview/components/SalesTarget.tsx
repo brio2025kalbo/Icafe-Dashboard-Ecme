@@ -3,21 +3,21 @@ import Card from '@/components/ui/Card'
 import Progress from '@/components/ui/Progress'
 import Select from '@/components/ui/Select'
 import AbbreviateNumber from '@/components/shared/AbbreviateNumber'
-import { options } from '../constants'
-import type { SalesTargetData, Period } from '../types'
+import { ecommerceOptions } from '../constants'
+import type { SalesTargetData, EcommercePeriod } from '../types'
 
 type SalesTargetProps = {
     data: SalesTargetData
 }
 
-const periodLabel: Record<Period, string> = {
+const periodLabel: Record<EcommercePeriod, string> = {
     thisMonth: 'month',
     thisWeek: 'week',
     thisYear: 'year',
 }
 
 const SalesTarget = ({ data }: SalesTargetProps) => {
-    const [selectedPeriod, setSelectedPeriod] = useState<Period>('thisMonth')
+    const [selectedPeriod, setSelectedPeriod] = useState<EcommercePeriod>('thisMonth')
 
     return (
         <Card>
@@ -27,10 +27,10 @@ const SalesTarget = ({ data }: SalesTargetProps) => {
                     className="w-[120px]"
                     size="sm"
                     placeholder="Select period"
-                    value={options.filter(
+                    value={ecommerceOptions.filter(
                         (option) => option.value === selectedPeriod,
                     )}
-                    options={options}
+                    options={ecommerceOptions}
                     isSearchable={false}
                     onChange={(option) => {
                         if (option?.value) {
