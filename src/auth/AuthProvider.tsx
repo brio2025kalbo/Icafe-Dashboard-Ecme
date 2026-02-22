@@ -1,4 +1,4 @@
-import { useRef, useImperativeHandle, useState, useEffect } from 'react'
+import { useRef, useImperativeHandle, useState, useEffect, useCallback } from 'react'
 import AuthContext from './AuthContext'
 import appConfig from '@/configs/app.config'
 import { useSessionUser, useToken } from '@/store/authStore'
@@ -14,6 +14,7 @@ import type {
     User,
     Token,
 } from '@/@types/auth'
+import { useCafeStore } from '@/store/cafeStore'
 import type { ReactNode, Ref } from 'react'
 import type { NavigateFunction } from 'react-router'
 
@@ -55,6 +56,10 @@ function AuthProvider({ children }: AuthProviderProps) {
     const justSignedInRef = useRef(false)
 
     const authenticated = Boolean(tokenState && signedIn)
+
+    const fetchCafes = useCafeStore((s) => s.fetchCafes)
+    const setCafes = useCafeStore((s) => s.setCafes)
+    const setSelectedCafeId = useCafeStore((s) => s.setSelectedCafeId)
 
     const navigatorRef = useRef<IsolatedNavigatorRef>(null)
 
@@ -110,6 +115,26 @@ function AuthProvider({ children }: AuthProviderProps) {
         )
     }
 
+    // Re-fetch cafes after sign-in so the correct access-filtered list is loaded
+    // immediately for the signed-in user, without requiring a page refresh.
+    const refreshCafes = useCallback(async (accessToken: string) => {
+        try {
+            const res = await fetch('/api/cafes', {
+                headers: { Authorization: `Bearer ${accessToken}` },
+            })
+            const data = await res.json()
+            if (data.ok && data.cafes.length > 0) {
+                setCafes(data.cafes)
+                setSelectedCafeId(data.cafes[0].id)
+            } else {
+                setCafes([])
+                setSelectedCafeId(null)
+            }
+        } catch {
+            // Non-critical — cafes will load on next navigation
+        }
+    }, [setCafes, setSelectedCafeId])
+
     const handleSignIn = (tokens: Token, user?: User) => {
         setToken(tokens.accessToken)
         setTokenState(tokens.accessToken)
@@ -118,6 +143,9 @@ function AuthProvider({ children }: AuthProviderProps) {
         if (user) {
             setUser(user)
         }
+
+        // Re-fetch cafes with the new token so access-filtered list is applied immediately
+        refreshCafes(tokens.accessToken)
     }
 
     const handleSignOut = () => {
@@ -125,6 +153,9 @@ function AuthProvider({ children }: AuthProviderProps) {
         setTokenState('')
         setUser({})
         setSessionSignedIn(false)
+        // Clear the cafe list so the next user starts fresh
+        setCafes([])
+        setSelectedCafeId(null)
     }
 
     const signIn = async (values: SignInCredential): AuthResult => {
