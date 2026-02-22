@@ -523,6 +523,19 @@ app.put('/api/rbac/users/:id/role', requireAuth, requireAdmin, async (req, res) 
     if (!['admin','staff'].includes(role))
         return res.status(400).json({ ok: false, error: 'role must be admin or staff' })
     try {
+        // Guard: if downgrading an admin to staff, ensure at least one other admin remains
+        if (role === 'staff') {
+            const [[{ adminCount }]] = await pool.execute(
+                "SELECT COUNT(*) AS adminCount FROM users WHERE role='admin' AND is_active=1 AND id != ?",
+                [id]
+            )
+            if (adminCount === 0) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Cannot remove the last admin. Promote another user to admin first.',
+                })
+            }
+        }
         await pool.execute('UPDATE users SET role=? WHERE id=?', [role, id])
         await logActivity(req.user.id, 'update_user', `id=${id} role=${role}`, getIp(req))
         res.json({ ok: true })

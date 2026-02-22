@@ -3,15 +3,17 @@ import Avatar from '@/components/ui/Avatar'
 import Tag from '@/components/ui/Tag'
 import Dropdown from '@/components/ui/Dropdown'
 import Button from '@/components/ui/Button'
+import Tooltip from '@/components/ui/Tooltip'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import DataTable from '@/components/shared/DataTable'
 import CafeAccessDialog from './CafeAccessDialog'
 import { useRolePermissionsStore } from '../store/rolePermissionsStore'
 import { apiUpdateUserRole } from '@/services/RbacService'
+import { useSessionUser } from '@/store/authStore'
 import dayjs from 'dayjs'
 import cloneDeep from 'lodash/cloneDeep'
-import { TbChevronDown, TbBuildingStore } from 'react-icons/tb'
+import { TbChevronDown, TbBuildingStore, TbLock } from 'react-icons/tb'
 import type {
     User,
     Users,
@@ -36,6 +38,15 @@ const statusColor: Record<string, string> = {
 
 const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
     const { userList, userListTotal, isLoading, roleList, mutate } = props
+
+    const currentUser = useSessionUser((state) => state.user)
+
+    // Count how many active admins exist in the current page data
+    // Used to disable the role dropdown for the last remaining admin
+    const adminCount = useMemo(
+        () => userList.filter((u) => u.role === 'admin').length,
+        [userList],
+    )
 
     const {
         tableData,
@@ -189,11 +200,19 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
                 size: 70,
                 cell: (props) => {
                     const row = props.row.original
-                    return (
-                        <Dropdown
-                            renderTitle={
+                    return (() => {
+                            // Disable the dropdown if this row is the only remaining admin
+                            // (prevents locking out all admins from the system)
+                            const isLastAdmin =
+                                row.role === 'admin' && adminCount <= 1
+
+                            const dropdownTitle = (
                                 <div
-                                    className="inline-flex items-center gap-2 py-2 px-4 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                                    className={`inline-flex items-center gap-2 py-2 px-4 rounded-lg ${
+                                        isLastAdmin
+                                            ? 'opacity-50 cursor-not-allowed'
+                                            : 'hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer'
+                                    }`}
                                     role="button"
                                 >
                                     <span className="font-bold heading-text">
@@ -203,25 +222,47 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
                                             )?.name
                                         }
                                     </span>
-                                    <TbChevronDown />
+                                    {isLastAdmin ? (
+                                        <TbLock className="text-gray-400" />
+                                    ) : (
+                                        <TbChevronDown />
+                                    )}
                                 </div>
-                            }
-                        >
-                            {roleList
-                                .filter((role) => role.id !== row.role)
-                                .map((role) => (
-                                    <Dropdown.Item
-                                        key={role.id}
-                                        eventKey={role.id}
-                                        onClick={() =>
-                                            handleRoleChange(role.id, row.id, row.name)
-                                        }
+                            )
+
+                            if (isLastAdmin) {
+                                return (
+                                    <Tooltip
+                                        title="Cannot change role — this is the only admin account. Promote another user to admin first."
+                                        placement="top"
                                     >
-                                        {role.name}
-                                    </Dropdown.Item>
-                                ))}
-                        </Dropdown>
-                    )
+                                        {dropdownTitle}
+                                    </Tooltip>
+                                )
+                            }
+
+                            return (
+                                <Dropdown renderTitle={dropdownTitle}>
+                                    {roleList
+                                        .filter((role) => role.id !== row.role)
+                                        .map((role) => (
+                                            <Dropdown.Item
+                                                key={role.id}
+                                                eventKey={role.id}
+                                                onClick={() =>
+                                                    handleRoleChange(
+                                                        role.id,
+                                                        row.id,
+                                                        row.name,
+                                                    )
+                                                }
+                                            >
+                                                {role.name}
+                                            </Dropdown.Item>
+                                        ))}
+                                </Dropdown>
+                            )
+                        })()
                 },
             },
             {
