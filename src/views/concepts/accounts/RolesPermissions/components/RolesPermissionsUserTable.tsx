@@ -1,12 +1,14 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import Avatar from '@/components/ui/Avatar'
 import Tag from '@/components/ui/Tag'
 import Dropdown from '@/components/ui/Dropdown'
+import Button from '@/components/ui/Button'
 import DataTable from '@/components/shared/DataTable'
+import CafeAccessDialog from './CafeAccessDialog'
 import { useRolePermissionsStore } from '../store/rolePermissionsStore'
 import dayjs from 'dayjs'
 import cloneDeep from 'lodash/cloneDeep'
-import { TbChevronDown } from 'react-icons/tb'
+import { TbChevronDown, TbBuildingStore } from 'react-icons/tb'
 import type {
     User,
     Users,
@@ -39,6 +41,20 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
         setSelectedUser,
         setSelectAllUser,
     } = useRolePermissionsStore()
+
+    // Cafe Access Dialog state
+    const [cafeDialogUser, setCafeDialogUser] = useState<User | null>(null)
+    const [cafeDialogOpen, setCafeDialogOpen] = useState(false)
+
+    const openCafeDialog = (user: User) => {
+        setCafeDialogUser(user)
+        setCafeDialogOpen(true)
+    }
+
+    const closeCafeDialog = () => {
+        setCafeDialogOpen(false)
+        setCafeDialogUser(null)
+    }
 
     const handleSetTableData = (data: TableQueries) => {
         setTableData(data)
@@ -84,10 +100,8 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
             if (user.id === id) {
                 user.role = role
             }
-
             return user
         })
-
         mutate(
             { list: newUserList, total: userListTotal - selectedUser.length },
             false,
@@ -188,35 +202,70 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
                     )
                 },
             },
+            {
+                header: 'Cafe Access',
+                id: 'cafeAccess',
+                size: 130,
+                cell: (props) => {
+                    const row = props.row.original
+                    // Admins always have full access — no need to manage
+                    if (row.role === 'admin') {
+                        return (
+                            <span className="text-xs text-gray-400 italic">
+                                All cafes (admin)
+                            </span>
+                        )
+                    }
+                    return (
+                        <Button
+                            size="xs"
+                            variant="twoTone"
+                            icon={<TbBuildingStore />}
+                            onClick={() => openCafeDialog(row)}
+                        >
+                            Manage
+                        </Button>
+                    )
+                },
+            },
         ],
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [roleList, userList],
     )
 
     return (
-        <DataTable
-            selectable
-            columns={columns}
-            data={userList}
-            noData={!isLoading && userList.length === 0}
-            skeletonAvatarColumns={[0]}
-            skeletonAvatarProps={{ width: 28, height: 28 }}
-            loading={isLoading}
-            pagingData={{
-                total: userListTotal,
-                pageIndex: tableData.pageIndex as number,
-                pageSize: tableData.pageSize as number,
-            }}
-            checkboxChecked={(row) =>
-                selectedUser.some((selected) => selected.id === row.id)
-            }
-            hoverable={false}
-            onPaginationChange={handlePaginationChange}
-            onSelectChange={handleSelectChange}
-            onSort={handleSort}
-            onCheckBoxChange={handleRowSelect}
-            onIndeterminateCheckBoxChange={handleAllRowSelect}
-        />
+        <>
+            <DataTable
+                selectable
+                columns={columns}
+                data={userList}
+                noData={!isLoading && userList.length === 0}
+                skeletonAvatarColumns={[0]}
+                skeletonAvatarProps={{ width: 28, height: 28 }}
+                loading={isLoading}
+                pagingData={{
+                    total: userListTotal,
+                    pageIndex: tableData.pageIndex as number,
+                    pageSize: tableData.pageSize as number,
+                }}
+                checkboxChecked={(row) =>
+                    selectedUser.some((selected) => selected.id === row.id)
+                }
+                hoverable={false}
+                onPaginationChange={handlePaginationChange}
+                onSelectChange={handleSelectChange}
+                onSort={handleSort}
+                onCheckBoxChange={handleRowSelect}
+                onIndeterminateCheckBoxChange={handleAllRowSelect}
+            />
+
+            <CafeAccessDialog
+                user={cafeDialogUser}
+                open={cafeDialogOpen}
+                onClose={closeCafeDialog}
+                onSaved={() => mutate()}
+            />
+        </>
     )
 }
 

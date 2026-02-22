@@ -549,11 +549,35 @@ app.put('/api/rbac/users/:id/status', requireAuth, requireAdmin, async (req, res
 
 // ── REST API: Cafes (admin only for write operations) ────────────────────────
 
+// Helper: grant all admin users access to a newly created cafe
+async function grantAdminsAccessToCafe(cafeId) {
+    const [admins] = await pool.execute("SELECT id FROM users WHERE role='admin'")
+    for (const admin of admins) {
+        await pool.execute(
+            'INSERT IGNORE INTO user_cafe_access (user_id, cafe_id) VALUES (?, ?)',
+            [admin.id, cafeId]
+        )
+    }
+}
+
 app.get('/api/cafes', requireAuth, async (req, res) => {
     try {
-        const [rows] = await pool.execute(
-            'SELECT * FROM cafes ORDER BY sort_order ASC, created_at ASC'
-        )
+        let rows
+        if (req.user.role === 'admin') {
+            // Admin sees all cafes
+            ;[rows] = await pool.execute(
+                'SELECT * FROM cafes ORDER BY sort_order ASC, created_at ASC'
+            )
+        } else {
+            // Staff only see cafes they have been granted access to
+            ;[rows] = await pool.execute(
+                `SELECT c.* FROM cafes c
+                 INNER JOIN user_cafe_access uca ON uca.cafe_id = c.id
+                 WHERE uca.user_id = ?
+                 ORDER BY c.sort_order ASC, c.created_at ASC`,
+                [req.user.id]
+            )
+        }
         res.json({
             ok: true,
             cafes: rows.map((r) => ({
@@ -580,6 +604,8 @@ app.post('/api/cafes', requireAuth, requireAdmin, async (req, res) => {
             'INSERT INTO cafes (id, name, cafe_id, api_key, sort_order) VALUES (?, ?, ?, ?, ?)',
             [id, name.trim(), cafeId.trim(), apiKey.trim(), sortOrder]
         )
+        // Auto-grant all admins access to the new cafe
+        await grantAdminsAccessToCafe(id)
         await logActivity(req.user.id, 'create_cafe', `name=${name}`, getIp(req))
         res.status(201).json({
             ok: true,
@@ -640,6 +666,64 @@ app.put('/api/cafes-reorder', requireAuth, requireAdmin, async (req, res) => {
         } finally {
             conn.release()
         }
+        res.json({ ok: true })
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message })
+    }
+})
+
+// ── Cafe Access Management (admin only) ─────────────────────────────────────
+// GET /api/rbac/users/:id/cafes — list all cafes with hasAccess flag for a user
+app.get('/api/rbac/users/:id/cafes', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params
+        const [allCafes] = await pool.execute(
+            'SELECT * FROM cafes ORDER BY sort_order ASC, created_at ASC'
+        )
+        const [granted] = await pool.execute(
+            'SELECT cafe_id FROM user_cafe_access WHERE user_id = ?',
+            [id]
+        )
+        const grantedSet = new Set(granted.map((r) => r.cafe_id))
+        res.json({
+            ok: true,
+            cafes: allCafes.map((c) => ({
+                id:        c.id,
+                name:      c.name,
+                cafeId:    c.cafe_id,
+                hasAccess: grantedSet.has(c.id),
+            })),
+        })
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message })
+    }
+})
+
+// PUT /api/rbac/users/:id/cafes — replace the full access list for a user
+app.put('/api/rbac/users/:id/cafes', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params
+        const { cafeIds } = req.body  // array of cafe UUIDs to grant
+        if (!Array.isArray(cafeIds))
+            return res.status(400).json({ ok: false, error: 'cafeIds must be an array' })
+        const conn = await pool.getConnection()
+        try {
+            await conn.beginTransaction()
+            await conn.execute('DELETE FROM user_cafe_access WHERE user_id = ?', [id])
+            for (const cafeId of cafeIds) {
+                await conn.execute(
+                    'INSERT INTO user_cafe_access (user_id, cafe_id) VALUES (?, ?)',
+                    [id, cafeId]
+                )
+            }
+            await conn.commit()
+        } catch (e) {
+            await conn.rollback()
+            throw e
+        } finally {
+            conn.release()
+        }
+        await logActivity(req.user.id, 'update_cafe_access', `user=${id} cafes=${cafeIds.join(',')}`, getIp(req))
         res.json({ ok: true })
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message })
