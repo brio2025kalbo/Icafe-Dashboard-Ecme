@@ -35,6 +35,7 @@ type StatisticCardProps = {
 
 type StatisticGroupsProps = {
     data: StatisticData
+    refreshSignal?: number
 }
 
 const chartColors: Record<StatisticCategory, string> = {
@@ -115,7 +116,7 @@ function toEcommercePeriod(p: Period): EcommercePeriod {
     return p
 }
 
-const Overview = ({ data }: StatisticGroupsProps) => {
+const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
     const [selectedCategory, setSelectedCategory] =
         useState<StatisticCategory>('totalProfit')
 
@@ -184,7 +185,7 @@ const Overview = ({ data }: StatisticGroupsProps) => {
         setLocalStats(totals)
         setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cafes, selectedPeriod])
+    }, [cafes, selectedPeriod, refreshSignal])
 
     useEffect(() => { fetchStats() }, [fetchStats])
 

@@ -6,7 +6,7 @@ import CafeShiftOverview from './CafeShiftOverview'
 
 const AUTO_REFRESH_SECONDS = 30
 
-const IcafeShiftSection = () => {
+const IcafeShiftSection = ({ onRefresh }: { onRefresh?: () => void }) => {
     const cafes = useCafeStore((s) => s.cafes)
     const [refreshKey, setRefreshKey] = useState(0)
     const [countdown, setCountdown] = useState(AUTO_REFRESH_SECONDS)
@@ -18,7 +18,8 @@ const IcafeShiftSection = () => {
         countdownRef.current = AUTO_REFRESH_SECONDS
         setCountdown(AUTO_REFRESH_SECONDS)
         setRefreshKey((k) => k + 1)
-    }, [])
+        onRefresh?.()
+    }, [onRefresh])
 
     // Start/stop the interval based on autoRefreshEnabled
     useEffect(() => {
@@ -36,12 +37,13 @@ const IcafeShiftSection = () => {
                 countdownRef.current = AUTO_REFRESH_SECONDS
                 setCountdown(AUTO_REFRESH_SECONDS)
                 setRefreshKey((k) => k + 1)
+                onRefresh?.()
             }
         }, 1000)
         return () => {
             if (timerRef.current) clearInterval(timerRef.current)
         }
-    }, [autoRefreshEnabled])
+    }, [autoRefreshEnabled, onRefresh])
 
     // SVG ring progress
     const radius = 8
