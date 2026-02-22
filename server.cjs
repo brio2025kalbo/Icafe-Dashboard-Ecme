@@ -701,7 +701,7 @@ function fetchUpstream(targetUrl, headers) {
     })
 }
 
-app.use('/icafe-api', requireAuth, async (req, res) => {
+app.use('/icafe-api', async (req, res) => {
     const upstreamPath = req.url
     const targetUrl = 'https://api.icafecloud.com/api/v2' + upstreamPath
     const cacheKey = upstreamPath

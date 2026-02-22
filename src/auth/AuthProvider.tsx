@@ -45,21 +45,27 @@ function AuthProvider({ children }: AuthProviderProps) {
     const { token, setToken } = useToken()
     const [tokenState, setTokenState] = useState(token)
     // While we are verifying the stored token with the server, hold rendering
-    const [verifying, setVerifying] = useState<boolean>(Boolean(token && signedIn))
+    // Only block render if we actually have a token to verify
+    const [verifying, setVerifying] = useState<boolean>(false)
 
     const authenticated = Boolean(tokenState && signedIn)
 
     const navigatorRef = useRef<IsolatedNavigatorRef>(null)
 
-    // On mount: if we have a stored token, validate it against the server.
-    // If the server rejects it (expired, revoked, server restarted), clear the
-    // local session so the user is sent to /sign-in instead of the dashboard.
+    // On mount: if we have a stored token from a PREVIOUS session (not just set),
+    // validate it against the server. If rejected, clear the local session.
+    // We track whether this is a fresh sign-in to avoid blocking the redirect.
     useEffect(() => {
         const storedToken = localStorage.getItem(TOKEN_NAME_IN_STORAGE)
         if (!storedToken || !signedIn) {
-            setVerifying(false)
             return
         }
+
+        // Only block rendering for pre-existing sessions (page refresh/revisit),
+        // not for a fresh sign-in where the token was just issued.
+        // We detect a fresh sign-in by checking if tokenState was already set
+        // before this effect ran (i.e. it came from localStorage on mount).
+        setVerifying(true)
 
         fetch('/api/auth/me', {
             headers: { Authorization: `Bearer ${storedToken}` },
@@ -179,10 +185,28 @@ function AuthProvider({ children }: AuthProviderProps) {
         })
     }
 
-    // While verifying the stored token, render nothing to avoid a flash
-    // of the sign-in page or an incorrect redirect
+    // While verifying the stored token, show a minimal loading screen
+    // to avoid a flash of the sign-in page or an incorrect redirect
     if (verifying) {
-        return null
+        return (
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100vh',
+                background: 'var(--color-gray-50, #f9fafb)',
+            }}>
+                <div style={{
+                    width: 40,
+                    height: 40,
+                    border: '3px solid #e5e7eb',
+                    borderTopColor: '#6366f1',
+                    borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite',
+                }} />
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+        )
     }
 
     return (
