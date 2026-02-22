@@ -44,28 +44,36 @@ function AuthProvider({ children }: AuthProviderProps) {
     )
     const { token, setToken } = useToken()
     const [tokenState, setTokenState] = useState(token)
-    // While we are verifying the stored token with the server, hold rendering
-    // Only block render if we actually have a token to verify
-    const [verifying, setVerifying] = useState<boolean>(false)
+
+    // Start in verifying state if there is a persisted token to validate.
+    // This blocks rendering until we confirm the token is still valid on the server.
+    const hasPersistedToken = Boolean(localStorage.getItem(TOKEN_NAME_IN_STORAGE) && signedIn)
+    const [verifying, setVerifying] = useState<boolean>(hasPersistedToken)
+
+    // Track whether the current sign-in was just performed (fresh login)
+    // so we can skip the verification step for that case.
+    const justSignedInRef = useRef(false)
 
     const authenticated = Boolean(tokenState && signedIn)
 
     const navigatorRef = useRef<IsolatedNavigatorRef>(null)
 
-    // On mount: if we have a stored token from a PREVIOUS session (not just set),
-    // validate it against the server. If rejected, clear the local session.
-    // We track whether this is a fresh sign-in to avoid blocking the redirect.
+    // On mount: validate the stored token against the server.
+    // If the server rejects it (expired, revoked, server restarted), clear the
+    // local session so the user is sent to /sign-in instead of a broken dashboard.
     useEffect(() => {
         const storedToken = localStorage.getItem(TOKEN_NAME_IN_STORAGE)
         if (!storedToken || !signedIn) {
+            setVerifying(false)
             return
         }
 
-        // Only block rendering for pre-existing sessions (page refresh/revisit),
-        // not for a fresh sign-in where the token was just issued.
-        // We detect a fresh sign-in by checking if tokenState was already set
-        // before this effect ran (i.e. it came from localStorage on mount).
-        setVerifying(true)
+        // Skip verification if we just signed in (token was freshly issued)
+        if (justSignedInRef.current) {
+            justSignedInRef.current = false
+            setVerifying(false)
+            return
+        }
 
         fetch('/api/auth/me', {
             headers: { Authorization: `Bearer ${storedToken}` },
@@ -123,6 +131,7 @@ function AuthProvider({ children }: AuthProviderProps) {
         try {
             const resp = await apiSignIn(values)
             if (resp) {
+                justSignedInRef.current = true
                 handleSignIn({ accessToken: resp.token }, resp.user)
                 redirect()
                 return {
@@ -147,6 +156,7 @@ function AuthProvider({ children }: AuthProviderProps) {
         try {
             const resp = await apiSignUp(values)
             if (resp) {
+                justSignedInRef.current = true
                 handleSignIn({ accessToken: resp.token }, resp.user)
                 redirect()
                 return {
