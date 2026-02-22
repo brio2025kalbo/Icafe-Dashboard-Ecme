@@ -81,6 +81,16 @@ async function initDb() {
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS user_cafe_access (
+                user_id    VARCHAR(36) NOT NULL,
+                cafe_id    VARCHAR(36) NOT NULL,
+                granted_at DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, cafe_id),
+                FOREIGN KEY (user_id) REFERENCES users(id)  ON DELETE CASCADE,
+                FOREIGN KEY (cafe_id) REFERENCES cafes(id)  ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
         // Seed default admin if no users exist
         const [[{ cnt }]] = await conn.execute('SELECT COUNT(*) AS cnt FROM users')
         if (cnt === 0) {
