@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Tabs, Notification, toast } from '@/components/ui'
 import {
     TbCurrencyDollar,
@@ -10,6 +10,7 @@ import {
     TbChevronLeft,
     TbChevronRight,
     TbAlertTriangle,
+    TbRefresh,
 } from 'react-icons/tb'
 import ShiftStatCard from './ShiftStatCard'
 import StaffBreakdownTable from './StaffBreakdownTable'
@@ -20,7 +21,6 @@ import {
     getTodayBusinessDateStr,
     PERIOD_OPTIONS,
 } from '../utils/periodUtils'
-import { useRef } from 'react'
 import type { PeriodType, ShiftStats, ShiftBreakdownRow } from '../icafeTypes'
 import type { Cafe } from '@/@types/cafe'
 import classNames from 'classnames'
@@ -40,6 +40,10 @@ const EMPTY_STATS: ShiftStats = {
     shift_count: 0,
 }
 
+// Stale thresholds
+const WARN_MINUTES  = 3   // orange warning
+const STALE_MINUTES = 10  // overlay badge
+
 function addDaysToStr(dateStr: string, n: number): string {
     const parts = dateStr.split('-').map(Number)
     const d = new Date(parts[0], parts[1] - 1, parts[2])
@@ -55,17 +59,29 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [stats, setStats] = useState<ShiftStats>(EMPTY_STATS)
     const [breakdown, setBreakdown] = useState<ShiftBreakdownRow[]>([])
-    const [loading, setLoading] = useState(false)    // first-load only
-    const [refreshing, setRefreshing] = useState(false) // silent background refresh
+    const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [noShifts, setNoShifts] = useState(false)
-    const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-    const [now, setNow] = useState(new Date())
-    const hasLoadedOnce = useRef(false)
 
-    // Update 'now' every minute to refresh the "Updated X ago" text
+    // lastDataAt: timestamp of the last time we received GOOD data from the API.
+    // This does NOT reset on every refresh — only when data actually arrives successfully.
+    const [lastDataAt, setLastDataAt] = useState<Date | null>(null)
+
+    // now ticks every 30 seconds so the "X min ago" label stays fresh
+    const [now, setNow] = useState(new Date())
+
+    const hasLoadedOnce = useRef(false)
+    const prevSignal = useRef(refreshSignal)
+    // Keep a ref to lastDataAt so we can read it inside callbacks without
+    // adding it to the dependency array (which caused infinite re-fetch loops)
+    const lastDataAtRef = useRef<Date | null>(null)
+
     useEffect(() => {
-        const timer = setInterval(() => setNow(new Date()), 60000)
+        lastDataAtRef.current = lastDataAt
+    }, [lastDataAt])
+
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 30_000)
         return () => clearInterval(timer)
     }, [])
 
@@ -74,13 +90,12 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
             setError('Cafe ID or API key not configured.')
             return
         }
+
         if (!hasLoadedOnce.current) {
             setLoading(true)
-        } else {
-            setRefreshing(true)
         }
         setError(null)
-        setNoShifts(false)
+
         try {
             const range = period === 'daily'
                 ? getBusinessDayRange(selectedDate)
@@ -101,39 +116,58 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 }),
             ])
 
-            if (result.shift_count === 0) {
+            // Check for API-level error responses (e.g. 507 rate limit returned as 200)
+            // The services throw on non-200 HTTP, but some errors come back as JSON with code != 200
+            if (result.shift_count === 0 && !rows.length) {
                 setNoShifts(true)
                 setStats(EMPTY_STATS)
                 setBreakdown([])
             } else {
+                setNoShifts(false)
                 setStats(result)
                 setBreakdown(rows)
             }
-            setLastUpdated(new Date())
+
+            // Only update the "last good data" timestamp on actual success
+            setLastDataAt(new Date())
+
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : 'Failed to load shift data.'
             setError(msg)
-            
-            // Show toast notification on failure
+
+            // Show toast with the time data was last successfully received
+            const prev = lastDataAtRef.current
+            const prevTime = prev ? prev.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'unknown'
+
             toast.push(
-                <Notification title="Refresh Failed" type="danger" duration={5000}>
-                    Failed to refresh {cafe.name}. Showing data from {lastUpdated?.toLocaleTimeString() || 'earlier'}.
+                <Notification title={`${cafe.name} — Refresh Failed`} type="danger" duration={8000}>
+                    <div className="flex flex-col gap-1">
+                        <span>{msg}</span>
+                        <span className="text-xs opacity-70">Last good data: {prevTime}</span>
+                        <button
+                            className="mt-1 text-xs text-white underline text-left"
+                            onClick={() => fetchStats()}
+                        >
+                            Retry now
+                        </button>
+                    </div>
                 </Notification>,
                 { placement: 'top-end' }
             )
         } finally {
             setLoading(false)
-            setRefreshing(false)
             hasLoadedOnce.current = true
         }
-    }, [cafe.id, cafe.cafeId, cafe.apiKey, cafe.name, period, selectedDate, lastUpdated])
+    // NOTE: lastDataAt intentionally NOT in deps — use lastDataAtRef instead
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cafe.id, cafe.cafeId, cafe.apiKey, cafe.name, period, selectedDate])
 
+    // Fetch on mount and when period/date changes
     useEffect(() => {
         fetchStats()
     }, [fetchStats])
 
-    // Silent background refresh triggered by parent
-    const prevSignal = useRef(refreshSignal)
+    // Silent background refresh triggered by parent auto-refresh
     useEffect(() => {
         if (refreshSignal !== prevSignal.current) {
             prevSignal.current = refreshSignal
@@ -148,19 +182,35 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
         ? getBusinessDayRange(selectedDate)
         : getDateRange(period)
 
-    // Stale data logic
-    const minutesSinceUpdate = lastUpdated ? Math.floor((now.getTime() - lastUpdated.getTime()) / 60000) : 0
-    const isStale = minutesSinceUpdate >= 2
-    const isVeryStale = minutesSinceUpdate >= 10
+    // Stale data calculations — based on lastDataAt, not last fetch attempt
+    const minutesSinceData = lastDataAt
+        ? Math.floor((now.getTime() - lastDataAt.getTime()) / 60_000)
+        : 0
+    const isWarn     = lastDataAt !== null && minutesSinceData >= WARN_MINUTES
+    const isVeryStale = lastDataAt !== null && minutesSinceData >= STALE_MINUTES
+
+    const updatedLabel = lastDataAt
+        ? minutesSinceData === 0
+            ? 'Updated just now'
+            : `Updated ${minutesSinceData}m ago`
+        : null
 
     return (
         <div className="flex flex-col gap-3 relative">
-            {/* Very Stale Overlay */}
+
+            {/* Very Stale Overlay (> 10 min since last good data) */}
             {isVeryStale && !loading && (
-                <div className="absolute inset-0 z-10 bg-white/40 dark:bg-gray-900/40 backdrop-blur-[1px] rounded-2xl flex items-center justify-center pointer-events-none">
+                <div className="absolute inset-0 z-10 bg-white/50 dark:bg-gray-900/50 backdrop-blur-[2px] rounded-2xl flex items-center justify-center">
                     <div className="bg-amber-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-pulse">
                         <TbAlertTriangle className="text-xl" />
                         <span className="font-bold text-sm uppercase tracking-wider">Stale Data</span>
+                        <button
+                            onClick={fetchStats}
+                            className="ml-2 bg-white/20 hover:bg-white/30 rounded-full p-1 transition-colors"
+                            title="Retry"
+                        >
+                            <TbRefresh className="text-base" />
+                        </button>
                     </div>
                 </div>
             )}
@@ -169,13 +219,13 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex flex-col">
                         <h6 className="font-semibold text-gray-700 dark:text-gray-200">{cafe.name}</h6>
-                        {lastUpdated && (
+                        {updatedLabel && (
                             <span className={classNames(
-                                "text-[10px] font-medium transition-colors",
-                                isStale ? "text-amber-500" : "text-gray-400"
+                                'text-[10px] font-medium transition-colors flex items-center gap-0.5',
+                                isWarn ? 'text-amber-500' : 'text-gray-400'
                             )}>
-                                {isStale && <TbAlertTriangle className="inline mr-1" />}
-                                Updated {minutesSinceUpdate === 0 ? 'just now' : `${minutesSinceUpdate}m ago`}
+                                {isWarn && <TbAlertTriangle className="inline" />}
+                                {updatedLabel}
                             </span>
                         )}
                     </div>
@@ -205,7 +255,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 </Tabs.TabList>
             </Tabs>
 
-            {/* Date navigator — only visible on Daily tab */}
+            {/* Date navigator */}
             {period === 'daily' && (
                 <div className="flex items-center gap-2">
                     <button
@@ -245,7 +295,6 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 <p className="text-xs text-red-500 mt-1">{error}</p>
             )}
 
-            {/* No shifts empty state */}
             {!loading && !error && noShifts && (
                 <div className="flex items-center gap-2 py-3 px-4 bg-gray-100 dark:bg-gray-800 rounded-xl text-gray-400 text-sm">
                     <TbCalendarOff className="text-lg flex-shrink-0" />
@@ -253,7 +302,6 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 </div>
             )}
 
-            {/* Stat cards grid — 3 cols on medium, 5 on large wide screens */}
             <div className="grid grid-cols-3 xl:grid-cols-5 gap-2">
                 <ShiftStatCard
                     label="Total Profit"
@@ -302,7 +350,6 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 />
             </div>
 
-            {/* Per-staff breakdown table */}
             <StaffBreakdownTable rows={breakdown} loading={loading} />
         </div>
     )
