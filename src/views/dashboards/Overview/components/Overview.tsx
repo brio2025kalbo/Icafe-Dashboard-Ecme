@@ -10,7 +10,7 @@ import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_2, COLOR_4 } from '@/constants/chart.constant'
 import { options } from '../constants'
 import { NumericFormat } from 'react-number-format'
-import { TbCoin, TbShoppingBagCheck, TbEye, TbReceiptRefund, TbBuildingStore } from 'react-icons/tb'
+import { TbCoin, TbShoppingBagCheck, TbEye, TbReceiptRefund, TbBuildingStore, TbArrowUpCircle, TbShoppingCart } from 'react-icons/tb'
 import { apiGetShiftStats } from '@/services/ReportsService'
 import {
     getDateRange,
@@ -211,7 +211,7 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     }}
                 />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
                 <StatisticCard
                     title="Total profit"
                     value={
@@ -225,7 +225,7 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                         />
                     }
                     growShrink={data.totalProfit[ecomPeriod].growShrink}
-                    iconClass="bg-sky-200"
+                    iconClass="bg-emerald-100 text-emerald-600"
                     icon={<TbCoin />}
                     label="totalProfit"
                     active={selectedCategory === 'totalProfit'}
@@ -245,10 +245,10 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                         />
                     }
                     growShrink={data.totalOrder[ecomPeriod].growShrink}
-                    iconClass="bg-emerald-200"
-                    icon={<TbShoppingBagCheck />}
-                    label="totalOrder"
-                    active={selectedCategory === 'totalOrder'}
+                    iconClass="bg-blue-100 text-blue-600"
+                    icon={<TbArrowUpCircle />}
+                    label="totaltopups"
+                    active={selectedCategory === 'totaltopups'}
                     compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
                     onClick={setSelectedCategory}
                 />
@@ -265,10 +265,10 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                         />
                     }
                     growShrink={data.totalOrder[ecomPeriod].growShrink}
-                    iconClass="bg-emerald-200"
-                    icon={<TbShoppingBagCheck />}
-                    label="totalOrder"
-                    active={selectedCategory === 'totalOrder'}
+                    iconClass="bg-violet-100 text-violet-600"
+                    icon={<TbShoppingCart />}
+                    label="totalShopsales"
+                    active={selectedCategory === 'totalShopsales'}
                     compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
                     onClick={setSelectedCategory}
                 />
@@ -285,10 +285,10 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                         />
                     }
                     growShrink={data.totalProfit[ecomPeriod].growShrink}
-                    iconClass="bg-red-200"
+                    iconClass="bg-red-100 text-red-500"
                     icon={<TbReceiptRefund />}
-                    label="totalProfit"
-                    active={selectedCategory === 'totalProfit'}
+                    label="totalrefunds"
+                    active={selectedCategory === 'totalrefunds'}
                     compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
                     onClick={setSelectedCategory}
                 />
@@ -305,28 +305,28 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                         />
                     }
                     growShrink={data.totalProfit[ecomPeriod].growShrink}
-                    iconClass="bg-orange-200"
+                    iconClass="bg-orange-100 text-orange-600"
                     icon={<TbBuildingStore />}
-                    label="totalProfit"
-                    active={selectedCategory === 'totalProfit'}
+                    label="totalcenterexpenses"
+                    active={selectedCategory === 'totalcenterexpenses'}
                     compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
                     onClick={setSelectedCategory}
                 />
-                <StatisticCard
+                {/* <StatisticCard
                     title="Impression"
                     value={
                         <AbbreviateNumber
-                            value={data.totalImpression[ecomPeriod].value}
+                            value={data.totalImpression[selectedPeriod].value}
                         />
                     }
-                    growShrink={data.totalImpression[ecomPeriod].growShrink}
+                    growShrink={data.totalImpression[selectedPeriod].growShrink}
                     iconClass="bg-purple-200"
                     icon={<TbEye />}
                     label="totalImpression"
                     active={selectedCategory === 'totalImpression'}
-                    compareFrom={data.totalProfit[ecomPeriod].comparePeriod}
+                    compareFrom={data.totalProfit[selectedPeriod].comparePeriod}
                     onClick={setSelectedCategory}
-                />
+                /> */}
             </div>
             <Chart
                 type="line"
