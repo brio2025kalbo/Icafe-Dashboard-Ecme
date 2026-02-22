@@ -45,7 +45,6 @@
     "framer-motion": "12.23.12",
     "gantt-task-react": "^0.3.9",
     "html-react-parser": "^5.2.1",
-    "http-proxy-middleware": "^3.0.5",
     "i18next": "^25.8.13",
     "js-cookie": "^3.0.5",
     "lodash": "^4.17.21",

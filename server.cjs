@@ -2,7 +2,9 @@ require('dotenv').config()
 const express = require('express')
 const path = require('path')
 const zlib = require('zlib')
-const { createProxyMiddleware } = require('http-proxy-middleware')
+const https = require('https')
+const http = require('http')
+const { URL } = require('url')
 const mysql = require('mysql2/promise')
 const { randomUUID } = require('crypto')
 
@@ -22,7 +24,6 @@ const pool = mysql.createPool({
     charset:            'utf8mb4',
 })
 
-// Initialise schema on startup
 async function initDb() {
     const conn = await pool.getConnection()
     try {
@@ -48,12 +49,168 @@ initDb().catch((err) => {
     process.exit(1)
 })
 
+// ── Smart caching proxy for iCafeCloud ──────────────────────────────────────
+//
+// Strategy:
+//  • shiftDetail  → cache for 25 seconds (active shift data, refreshes every 30s)
+//  • shiftList    → cache for 20 seconds
+//  • reportChart  → cache for 5 minutes (historical, rarely changes)
+//  • everything else → cache for 15 seconds
+//
+// In-flight deduplication: if the same URL is already being fetched, queue
+// subsequent callers and serve them the same result when it arrives.
+// This prevents the "thundering herd" that triggers 507 rate limiting.
+
+const CACHE_TTL = {
+    shiftDetail:  25 * 1000,
+    shiftList:    20 * 1000,
+    reportChart:  5  * 60 * 1000,
+    default:      15 * 1000,
+}
+
+// cache: Map<cacheKey, { body: Buffer, statusCode: number, headers: object, expiresAt: number }>
+const cache = new Map()
+// inFlight: Map<cacheKey, Promise<{body, statusCode, headers}>>
+const inFlight = new Map()
+
+function getTtl(urlPath) {
+    if (urlPath.includes('shiftDetail'))  return CACHE_TTL.shiftDetail
+    if (urlPath.includes('shiftList'))    return CACHE_TTL.shiftList
+    if (urlPath.includes('reportChart'))  return CACHE_TTL.reportChart
+    return CACHE_TTL.default
+}
+
+function decompressBuffer(buf, encoding) {
+    return new Promise((resolve) => {
+        if (encoding === 'gzip')      zlib.gunzip(buf, (e, d) => resolve(d || buf))
+        else if (encoding === 'br')   zlib.brotliDecompress(buf, (e, d) => resolve(d || buf))
+        else                          resolve(buf)
+    })
+}
+
+function fetchUpstream(targetUrl, headers) {
+    return new Promise((resolve, reject) => {
+        const parsed = new URL(targetUrl)
+        const mod = parsed.protocol === 'https:' ? https : http
+        const options = {
+            hostname: parsed.hostname,
+            port:     parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+            path:     parsed.pathname + parsed.search,
+            method:   'GET',
+            headers:  {
+                'Authorization': headers['authorization'] || '',
+                'Accept':        'application/json',
+                'User-Agent':    'iCafeDashboard/1.0',
+            },
+        }
+        const req = mod.request(options, (res) => {
+            const chunks = []
+            res.on('data', (c) => chunks.push(c))
+            res.on('end', () => {
+                const raw = Buffer.concat(chunks)
+                decompressBuffer(raw, res.headers['content-encoding']).then((body) => {
+                    resolve({ body, statusCode: res.statusCode, headers: res.headers })
+                })
+            })
+        })
+        req.on('error', reject)
+        req.end()
+    })
+}
+
+// Replace the http-proxy-middleware with our own smart handler
+app.use('/icafe-api', async (req, res) => {
+    // Rebuild the upstream URL
+    const upstreamPath = req.url  // already stripped of /icafe-api by express
+    const targetUrl = 'https://api.icafecloud.com/api/v2' + upstreamPath
+    const cacheKey = upstreamPath  // path + query string is unique per request
+
+    const now = Date.now()
+
+    // 1. Cache hit?
+    const cached = cache.get(cacheKey)
+    if (cached && cached.expiresAt > now) {
+        console.log('[PROXY] CACHE HIT', upstreamPath.split('?')[0])
+        res.status(cached.statusCode)
+        res.set('Content-Type', 'application/json')
+        res.set('X-Cache', 'HIT')
+        return res.send(cached.body)
+    }
+
+    // 2. In-flight deduplication — someone else is already fetching this URL
+    if (inFlight.has(cacheKey)) {
+        console.log('[PROXY] DEDUP WAIT', upstreamPath.split('?')[0])
+        try {
+            const result = await inFlight.get(cacheKey)
+            res.status(result.statusCode)
+            res.set('Content-Type', 'application/json')
+            res.set('X-Cache', 'DEDUP')
+            return res.send(result.body)
+        } catch (err) {
+            return res.status(502).json({ code: 502, message: 'Upstream error: ' + err.message })
+        }
+    }
+
+    // 3. Cache miss — fetch from upstream
+    console.log('[PROXY] -->', req.method, targetUrl)
+
+    const fetchPromise = fetchUpstream(targetUrl, req.headers)
+    inFlight.set(cacheKey, fetchPromise)
+
+    try {
+        const result = await fetchPromise
+        inFlight.delete(cacheKey)
+
+        console.log('[PROXY] <--', result.statusCode, upstreamPath.split('?')[0])
+
+        // Log body for shift endpoints (debug)
+        if (upstreamPath.includes('shiftDetail') || upstreamPath.includes('shiftList')) {
+            try {
+                const parsed = JSON.parse(result.body.toString())
+                console.log('[PROXY BODY]', upstreamPath.split('?')[0], JSON.stringify(parsed).substring(0, 800))
+            } catch { /* ignore */ }
+        }
+
+        // Only cache successful responses (not 507 rate-limit errors)
+        if (result.statusCode === 200) {
+            const ttl = getTtl(upstreamPath)
+            cache.set(cacheKey, {
+                body:       result.body,
+                statusCode: result.statusCode,
+                expiresAt:  now + ttl,
+            })
+            console.log(`[PROXY] CACHED for ${ttl / 1000}s → ${upstreamPath.split('?')[0]}`)
+        } else {
+            console.warn('[PROXY] NOT CACHED (status', result.statusCode, ') →', upstreamPath.split('?')[0])
+        }
+
+        res.status(result.statusCode)
+        res.set('Content-Type', 'application/json')
+        res.set('X-Cache', 'MISS')
+        return res.send(result.body)
+
+    } catch (err) {
+        inFlight.delete(cacheKey)
+        console.error('[PROXY] Error:', err.message)
+        return res.status(502).json({ code: 502, message: 'Proxy error: ' + err.message })
+    }
+})
+
+// Periodically evict expired cache entries
+setInterval(() => {
+    const now = Date.now()
+    let evicted = 0
+    for (const [key, entry] of cache.entries()) {
+        if (entry.expiresAt <= now) { cache.delete(key); evicted++ }
+    }
+    if (evicted > 0) console.log(`[CACHE] Evicted ${evicted} expired entries (${cache.size} remaining)`)
+}, 60 * 1000)
+
 // ── Body parser ──────────────────────────────────────────────────────────────
 app.use(express.json())
 
 // ── REST API: Cafes ──────────────────────────────────────────────────────────
 
-// GET /api/cafes
 app.get('/api/cafes', async (req, res) => {
     try {
         const [rows] = await pool.execute(
@@ -73,17 +230,14 @@ app.get('/api/cafes', async (req, res) => {
     }
 })
 
-// POST /api/cafes
 app.post('/api/cafes', async (req, res) => {
     try {
         const { name, cafeId, apiKey } = req.body
         if (!name || !cafeId || !apiKey)
             return res.status(400).json({ ok: false, error: 'name, cafeId, apiKey required' })
-
         const id = randomUUID()
         const [[{ m }]] = await pool.execute('SELECT MAX(sort_order) AS m FROM cafes')
         const sortOrder = (m ?? -1) + 1
-
         await pool.execute(
             'INSERT INTO cafes (id, name, cafe_id, api_key, sort_order) VALUES (?, ?, ?, ?, ?)',
             [id, name.trim(), cafeId.trim(), apiKey.trim(), sortOrder]
@@ -97,28 +251,24 @@ app.post('/api/cafes', async (req, res) => {
     }
 })
 
-// PUT /api/cafes/:id
 app.put('/api/cafes/:id', async (req, res) => {
     try {
         const { id } = req.params
         const { name, cafeId, apiKey } = req.body
         if (!name || !cafeId || !apiKey)
             return res.status(400).json({ ok: false, error: 'name, cafeId, apiKey required' })
-
         const [result] = await pool.execute(
             'UPDATE cafes SET name=?, cafe_id=?, api_key=? WHERE id=?',
             [name.trim(), cafeId.trim(), apiKey.trim(), id]
         )
         if (result.affectedRows === 0)
             return res.status(404).json({ ok: false, error: 'Cafe not found' })
-
         res.json({ ok: true, cafe: { id, name: name.trim(), cafeId: cafeId.trim(), apiKey: apiKey.trim() } })
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message })
     }
 })
 
-// DELETE /api/cafes/:id
 app.delete('/api/cafes/:id', async (req, res) => {
     try {
         const { id } = req.params
@@ -131,13 +281,11 @@ app.delete('/api/cafes/:id', async (req, res) => {
     }
 })
 
-// PUT /api/cafes-reorder
 app.put('/api/cafes-reorder', async (req, res) => {
     try {
         const { order } = req.body
         if (!Array.isArray(order))
             return res.status(400).json({ ok: false, error: 'order must be array of ids' })
-
         const conn = await pool.getConnection()
         try {
             await conn.beginTransaction()
@@ -156,51 +304,6 @@ app.put('/api/cafes-reorder', async (req, res) => {
         res.status(500).json({ ok: false, error: e.message })
     }
 })
-
-// ── Proxy /icafe-api/* → https://api.icafecloud.com/api/v2/* ─────────────────
-app.use(
-    '/icafe-api',
-    createProxyMiddleware({
-        target: 'https://api.icafecloud.com/api/v2',
-        changeOrigin: true,
-        pathRewrite: { '^/icafe-api': '' },
-        on: {
-            proxyReq: (proxyReq, req) => {
-                console.log('[PROXY] -->', req.method, 'https://api.icafecloud.com' + proxyReq.path)
-                const auth = req.headers['authorization']
-                if (auth) {
-                    proxyReq.setHeader('Authorization', auth)
-                } else {
-                    console.log('[PROXY] WARNING: No Authorization header in incoming request!')
-                }
-            },
-            proxyRes: (proxyRes, req) => {
-                console.log('[PROXY] <--', proxyRes.statusCode, req.url)
-                if (req.url.includes('shiftDetail') || req.url.includes('shiftList')) {
-                    const encoding = proxyRes.headers['content-encoding']
-                    const chunks = []
-                    proxyRes.on('data', (chunk) => chunks.push(chunk))
-                    proxyRes.on('end', () => {
-                        const buf = Buffer.concat(chunks)
-                        const decode = (b) => {
-                            try {
-                                const parsed = JSON.parse(b.toString())
-                                console.log('[PROXY BODY]', req.url.split('?')[0], JSON.stringify(parsed).substring(0, 1200))
-                            } catch { console.log('[PROXY BODY RAW]', b.toString().substring(0, 400)) }
-                        }
-                        if (encoding === 'gzip') zlib.gunzip(buf, (e, d) => decode(d || buf))
-                        else if (encoding === 'br') zlib.brotliDecompress(buf, (e, d) => decode(d || buf))
-                        else decode(buf)
-                    })
-                }
-            },
-            error: (err, req, res) => {
-                console.error('[PROXY] Error:', err.message)
-                res.status(502).json({ code: 502, message: 'Proxy error: ' + err.message })
-            },
-        },
-    }),
-)
 
 // ── Serve the Vite production build ──────────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'build')))
