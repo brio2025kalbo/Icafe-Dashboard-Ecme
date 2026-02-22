@@ -1,9 +1,10 @@
-import { useRef, useImperativeHandle, useState } from 'react'
+import { useRef, useImperativeHandle, useState, useEffect } from 'react'
 import AuthContext from './AuthContext'
 import appConfig from '@/configs/app.config'
 import { useSessionUser, useToken } from '@/store/authStore'
 import { apiSignIn, apiSignOut, apiSignUp } from '@/services/AuthService'
 import { REDIRECT_URL_KEY } from '@/constants/app.constant'
+import { TOKEN_NAME_IN_STORAGE } from '@/constants/api.constant'
 import { useNavigate } from 'react-router'
 import type {
     SignInCredential,
@@ -43,10 +44,47 @@ function AuthProvider({ children }: AuthProviderProps) {
     )
     const { token, setToken } = useToken()
     const [tokenState, setTokenState] = useState(token)
+    // While we are verifying the stored token with the server, hold rendering
+    const [verifying, setVerifying] = useState<boolean>(Boolean(token && signedIn))
 
     const authenticated = Boolean(tokenState && signedIn)
 
     const navigatorRef = useRef<IsolatedNavigatorRef>(null)
+
+    // On mount: if we have a stored token, validate it against the server.
+    // If the server rejects it (expired, revoked, server restarted), clear the
+    // local session so the user is sent to /sign-in instead of the dashboard.
+    useEffect(() => {
+        const storedToken = localStorage.getItem(TOKEN_NAME_IN_STORAGE)
+        if (!storedToken || !signedIn) {
+            setVerifying(false)
+            return
+        }
+
+        fetch('/api/auth/me', {
+            headers: { Authorization: `Bearer ${storedToken}` },
+        })
+            .then(async (res) => {
+                if (!res.ok) {
+                    // Token is invalid or session was revoked — clear everything
+                    setToken('')
+                    setTokenState('')
+                    setSessionSignedIn(false)
+                    setUser({})
+                } else {
+                    // Refresh user data from server in case role/avatar changed
+                    const data = await res.json()
+                    setUser(data)
+                }
+            })
+            .catch(() => {
+                // Network error — keep existing state (offline tolerance)
+            })
+            .finally(() => {
+                setVerifying(false)
+            })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     const redirect = () => {
         const search = window.location.search
@@ -70,6 +108,7 @@ function AuthProvider({ children }: AuthProviderProps) {
 
     const handleSignOut = () => {
         setToken('')
+        setTokenState('')
         setUser({})
         setSessionSignedIn(false)
     }
@@ -127,9 +166,10 @@ function AuthProvider({ children }: AuthProviderProps) {
             await apiSignOut()
         } finally {
             handleSignOut()
-            navigatorRef.current?.navigate('/')
+            navigatorRef.current?.navigate('/sign-in')
         }
     }
+
     const oAuthSignIn = (
         callback: (payload: OauthSignInCallbackPayload) => void,
     ) => {
@@ -137,6 +177,12 @@ function AuthProvider({ children }: AuthProviderProps) {
             onSignIn: handleSignIn,
             redirect,
         })
+    }
+
+    // While verifying the stored token, render nothing to avoid a flash
+    // of the sign-in page or an incorrect redirect
+    if (verifying) {
+        return null
     }
 
     return (
