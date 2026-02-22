@@ -50,6 +50,7 @@ type Props = { refreshSignal?: number }
 
 const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
     const cafes = useCafeStore((s) => s.cafes)
+    const setCombinedStats = useCafeStore((s) => s.setCombinedStats)
     const [period, setPeriod] = useState<PeriodType>('daily')
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [combined, setCombined] = useState<ShiftStats>(EMPTY_STATS)
@@ -119,6 +120,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
         }, { ...EMPTY_STATS })
 
         setCombined(totals)
+        setCombinedStats(totals)
         setErrors(errs)
         setLoading(false)
         hasLoadedOnce.current = true

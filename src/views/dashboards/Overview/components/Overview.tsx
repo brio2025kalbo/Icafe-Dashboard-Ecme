@@ -5,6 +5,7 @@ import GrowShrinkValue from '@/components/shared/GrowShrinkValue'
 import AbbreviateNumber from '@/components/shared/AbbreviateNumber'
 import Chart from '@/components/shared/Chart'
 import { useThemeStore } from '@/store/themeStore'
+import { useCafeStore } from '@/store/cafeStore'
 import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_2, COLOR_4 } from '@/constants/chart.constant'
 import { options } from '../constants'
@@ -90,6 +91,8 @@ const Overview = ({ data }: StatisticGroupsProps) => {
 
     const [selectedPeriod, setSelectedPeriod] = useState<Period>('thisMonth')
 
+    const combinedStats = useCafeStore((s) => s.combinedStats)
+
     const sideNavCollapse = useThemeStore(
         (state) => state.layout.sideNavCollapse,
     )
@@ -133,9 +136,11 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     value={
                         <NumericFormat
                             displayType="text"
-                            value={data.totalProfit[selectedPeriod].value}
-                            prefix={'$'}
+                            value={combinedStats?.total_profit ?? data.totalProfit[selectedPeriod].value}
+                            prefix={'₱'}
                             thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
                         />
                     }
                     growShrink={data.totalProfit[selectedPeriod].growShrink}
@@ -151,8 +156,11 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     value={
                         <NumericFormat
                             displayType="text"
-                            value={data.totalOrder[selectedPeriod].value}
+                            value={combinedStats?.top_ups ?? data.totalOrder[selectedPeriod].value}
+                            prefix={'₱'}
                             thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
                         />
                     }
                     growShrink={data.totalOrder[selectedPeriod].growShrink}
@@ -164,12 +172,15 @@ const Overview = ({ data }: StatisticGroupsProps) => {
                     onClick={setSelectedCategory}
                 />
                 <StatisticCard
-                    title="F&B Sales"
+                    title="Shop Sales"
                     value={
                         <NumericFormat
                             displayType="text"
-                            value={data.totalOrder[selectedPeriod].value}
+                            value={combinedStats?.shop_sales ?? data.totalOrder[selectedPeriod].value}
+                            prefix={'₱'}
                             thousandSeparator={true}
+                            decimalScale={2}
+                            fixedDecimalScale={true}
                         />
                     }
                     growShrink={data.totalOrder[selectedPeriod].growShrink}

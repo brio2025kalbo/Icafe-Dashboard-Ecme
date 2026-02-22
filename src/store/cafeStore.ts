@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { TOKEN_NAME_IN_STORAGE } from '@/constants/api.constant'
 import type { Cafe } from '@/@types/cafe'
+import type { ShiftStats } from '@/views/dashboards/Overview/icafeTypes'
 
 function authHeaders(): HeadersInit {
     const token = localStorage.getItem(TOKEN_NAME_IN_STORAGE) || ''
@@ -15,6 +16,7 @@ type CafeState = {
     selectedCafeId: string | null
     loading: boolean
     error: string | null
+    combinedStats: ShiftStats | null
 }
 type CafeAction = {
     fetchCafes: () => Promise<void>
@@ -24,6 +26,7 @@ type CafeAction = {
     reorderCafes: (ids: string[]) => Promise<void>
     setCafes: (cafes: Cafe[]) => void
     setSelectedCafeId: (cafeId: string | null) => void
+    setCombinedStats: (stats: ShiftStats) => void
 }
 
 export const useCafeStore = create<CafeState & CafeAction>()((set) => ({
@@ -31,6 +34,7 @@ export const useCafeStore = create<CafeState & CafeAction>()((set) => ({
     selectedCafeId: null,
     loading: false,
     error: null,
+    combinedStats: null,
 
     fetchCafes: async () => {
         set({ loading: true, error: null })
@@ -90,4 +94,5 @@ export const useCafeStore = create<CafeState & CafeAction>()((set) => ({
 
     setCafes: (cafes) => set({ cafes }),
     setSelectedCafeId: (cafeId) => set({ selectedCafeId: cafeId }),
+    setCombinedStats: (stats) => set({ combinedStats: stats }),
 }))
