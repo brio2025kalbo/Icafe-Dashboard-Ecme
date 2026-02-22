@@ -862,11 +862,20 @@ app.get('/api/dashboard/ecommerce', (req, res) => {
     res.json(ecommerceDashboardData)
 })
 
-// ── Serve the Vite production build ──────────────────────────────────────────
-app.use(express.static(path.join(__dirname, 'build')))
-app.use((req, res) => {
-    res.sendFile(path.join(__dirname, 'build', 'index.html'))
-})
+// ── Serve the Vite production build (only when build/ exists) ───────────────
+const buildDir = path.join(__dirname, 'build')
+const fs = require('fs')
+if (fs.existsSync(buildDir)) {
+    app.use(express.static(buildDir))
+    app.use((req, res) => {
+        res.sendFile(path.join(buildDir, 'index.html'))
+    })
+} else {
+    // Dev mode: Vite serves the frontend on port 5173
+    app.use((req, res) => {
+        res.status(404).json({ ok: false, message: 'API route not found (dev mode: frontend served by Vite on port 5173)' })
+    })
+}
 
 app.listen(PORT, () => {
     console.log(`iCafe Dashboard server running on port ${PORT}`)
