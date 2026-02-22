@@ -761,7 +761,7 @@ setInterval(() => {
 // The ecommerce stats section uses this endpoint. Since it's template demo
 // data unrelated to iCafeCloud, we serve the original mock data from the server.
 const ecommerceDashboardData = require('./data/ecommerce_dashboard.json')
-app.get('/api/dashboard/ecommerce', requireAuth, (req, res) => {
+app.get('/api/dashboard/ecommerce', (req, res) => {
     res.json(ecommerceDashboardData)
 })
 
