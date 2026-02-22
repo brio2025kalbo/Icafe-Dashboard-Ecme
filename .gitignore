@@ -25,3 +25,5 @@ build
 *.sln
 *.sw?
 .vite-cache/
+# SQLite legacy data directory
+data/
