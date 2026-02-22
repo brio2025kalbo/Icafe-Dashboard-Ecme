@@ -3,9 +3,12 @@ import Avatar from '@/components/ui/Avatar'
 import Tag from '@/components/ui/Tag'
 import Dropdown from '@/components/ui/Dropdown'
 import Button from '@/components/ui/Button'
+import Notification from '@/components/ui/Notification'
+import toast from '@/components/ui/toast'
 import DataTable from '@/components/shared/DataTable'
 import CafeAccessDialog from './CafeAccessDialog'
 import { useRolePermissionsStore } from '../store/rolePermissionsStore'
+import { apiUpdateUserRole } from '@/services/RbacService'
 import dayjs from 'dayjs'
 import cloneDeep from 'lodash/cloneDeep'
 import { TbChevronDown, TbBuildingStore } from 'react-icons/tb'
@@ -95,17 +98,36 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
         }
     }
 
-    const handleRoleChange = (role: string, id: string) => {
+    const handleRoleChange = async (role: string, id: string, userName: string) => {
+        // Optimistic update — update local SWR cache immediately
         const newUserList = structuredClone(userList).map((user) => {
             if (user.id === id) {
                 user.role = role
             }
             return user
         })
-        mutate(
-            { list: newUserList, total: userListTotal - selectedUser.length },
-            false,
-        )
+        mutate({ list: newUserList, total: userListTotal }, false)
+
+        try {
+            await apiUpdateUserRole(id, role)
+            toast.push(
+                <Notification type="success" title="Role updated">
+                    {userName}&apos;s role changed to <strong>{role}</strong>
+                </Notification>,
+                { placement: 'top-end' },
+            )
+            // Re-fetch from server to confirm
+            mutate()
+        } catch {
+            // Roll back the optimistic update on failure
+            mutate({ list: userList, total: userListTotal }, false)
+            toast.push(
+                <Notification type="danger" title="Failed to update role">
+                    Could not change {userName}&apos;s role. Please try again.
+                </Notification>,
+                { placement: 'top-end' },
+            )
+        }
     }
 
     const columns: ColumnDef<User>[] = useMemo(
@@ -192,7 +214,7 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
                                         key={role.id}
                                         eventKey={role.id}
                                         onClick={() =>
-                                            handleRoleChange(role.id, row.id)
+                                            handleRoleChange(role.id, row.id, row.name)
                                         }
                                     >
                                         {role.name}
