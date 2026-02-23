@@ -12,6 +12,7 @@ import type {
     ShiftStats,
     ShiftBreakdownRow,
     TopProductItem,
+    IcafeProduct,
     IcafeProductsResponse,
 } from '@/views/dashboards/Overview/icafeTypes'
 
@@ -24,6 +25,17 @@ function getCafeById(cafeId: string) {
     const cafe = useCafeStore.getState().cafes.find((c) => c.id === cafeId)
     if (!cafe) throw new Error(`Cafe with id "${cafeId}" not found in store.`)
     return cafe
+}
+
+/** Decode common HTML entities returned by the iCafeCloud API */
+function decodeHtmlEntities(str: string): string {
+    return str
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#039;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&')
 }
 
 // ─── Report Chart ─────────────────────────────────────────────────────────────
@@ -315,15 +327,31 @@ export async function apiGetShiftStats(
 
 export async function apiGetCafeProducts(
     cafeId: string,
-): Promise<IcafeProductsResponse> {
+): Promise<IcafeProduct[]> {
     const cafe = getCafeById(cafeId)
-    const response = await icafeAxios.get<IcafeProductsResponse>(
-        `/cafe/${cafe.cafeId}/products`,
-        {
-            headers: { Authorization: `Bearer ${cafe.apiKey}` },
-        },
-    )
-    return response.data
+    const allProducts: IcafeProduct[] = []
+    let page = 1
+    let totalPages = 1
+
+    // Fetch all pages of the product catalog
+    do {
+        const response = await icafeAxios.get<IcafeProductsResponse>(
+            `/cafe/${cafe.cafeId}/products`,
+            {
+                params: { page },
+                headers: { Authorization: `Bearer ${cafe.apiKey}` },
+            },
+        )
+        const items = response.data?.data?.items
+        if (!items || items.length === 0) break
+        allProducts.push(...items)
+
+        const paging = response.data?.data?.paging_info
+        totalPages = paging?.pages ?? 1
+        page++
+    } while (page <= totalPages)
+
+    return allProducts
 }
 
 // ─── Top Products ─────────────────────────────────────────────────────────────
@@ -366,11 +394,11 @@ export async function apiGetTopProducts(
 
     // Build a name→image lookup from the product catalog
     const imageMap = new Map<string, string>()
-    if (catalogResult?.data) {
-        for (const p of catalogResult.data) {
-            const name = String(p.product_name ?? '').trim().toLowerCase()
-            if (name && p.image) {
-                imageMap.set(name, String(p.image))
+    if (catalogResult) {
+        for (const p of catalogResult) {
+            const name = decodeHtmlEntities(String(p.product_name ?? '')).trim().toLowerCase()
+            if (name && p.product_image) {
+                imageMap.set(name, decodeHtmlEntities(String(p.product_image)))
             }
         }
     }

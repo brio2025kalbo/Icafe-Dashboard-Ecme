@@ -135,11 +135,25 @@ export type TopProductItem = {
 export type IcafeProduct = {
     product_id: number
     product_name: string
-    image?: string
+    product_image?: string
+    has_image: number
     [key: string]: unknown
 }
 
-export type IcafeProductsResponse = IcafeApiResponse<IcafeProduct[]>
+export type IcafeProductsPagingInfo = {
+    total_records: number
+    pages: number
+    page: number
+    page_next: number
+    [key: string]: unknown
+}
+
+export type IcafeProductsData = {
+    items: IcafeProduct[]
+    paging_info: IcafeProductsPagingInfo
+}
+
+export type IcafeProductsResponse = IcafeApiResponse<IcafeProductsData>
 
 // ─── Report Data Params ───────────────────────────────────────────────────────
 
