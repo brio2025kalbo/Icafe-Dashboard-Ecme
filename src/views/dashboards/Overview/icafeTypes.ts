@@ -207,7 +207,7 @@ export type GameItem = {
 
 export type PcSpendItem = {
     pc_name: string
-    spend: number
+    total_spend: string
 }
 
 export type ReportDataWithGames = {

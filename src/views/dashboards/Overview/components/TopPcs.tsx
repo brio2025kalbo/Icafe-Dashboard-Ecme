@@ -8,7 +8,7 @@ import { apiGetReportData } from '@/services/ReportsService'
 import { getDateRange } from '../utils/periodUtils'
 import type { PcSpendItem, ReportDataWithGames } from '../icafeTypes'
 
-const MAX_PCS = 5
+const MAX_PCS = 10
 
 const TopPcs = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
     const cafes = useCafeStore((s) => s.cafes)
@@ -42,25 +42,21 @@ const TopPcs = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
             )
 
             // Merge PCs across all cafes
-            const pcMap = new Map<string, { spend: number }>()
+            const pcMap = new Map<string, number>()
             for (const result of results) {
                 if (result.status !== 'fulfilled') continue
                 const pcList = result.value.data?.top_five_pc_spend
                 if (!Array.isArray(pcList)) continue
                 for (const item of pcList) {
-                    const spend = Number(item.spend) || 0
-                    const existing = pcMap.get(item.pc_name)
-                    if (existing) {
-                        existing.spend += spend
-                    } else {
-                        pcMap.set(item.pc_name, { spend })
-                    }
+                    const spend = parseFloat(item.total_spend) || 0
+                    const existing = pcMap.get(item.pc_name) ?? 0
+                    pcMap.set(item.pc_name, existing + spend)
                 }
             }
 
             const merged = Array.from(pcMap.entries())
-                .map(([pc_name, data]) => ({ pc_name, ...data }))
-                .sort((a, b) => b.spend - a.spend)
+                .map(([pc_name, total_spend]) => ({ pc_name, total_spend: total_spend.toFixed(2) }))
+                .sort((a, b) => parseFloat(b.total_spend) - parseFloat(a.total_spend))
                 .slice(0, MAX_PCS)
 
             setPcs(merged)
@@ -120,7 +116,7 @@ const TopPcs = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
                             </div>
                         </div>
                         <div className="font-semibold text-sm transition-all duration-300">
-                            ₱{(pc.spend ?? 0).toLocaleString(undefined, {
+                            ₱{parseFloat(pc.total_spend || '0').toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                             })}
