@@ -5,6 +5,7 @@ import RevenueBreakdown from './components/RevenueBreakdown'
 import RecentOrder from './components/RecentOrder'
 import TopGames from './components/TopGames'
 import TopProduct from './components/TopProduct'
+import TopPcs from './components/TopPcs'
 import SessionStats from './components/SessionStats'
 import IcafeReportsSection from './components/IcafeReportsSection'
 import IcafeShiftSection from './components/IcafeShiftSection'
@@ -30,38 +31,76 @@ const SalesDashboard = () => {
 
     return (
         <div className="flex flex-col gap-6">
-            {/* ── iCafeCloud Shift Stats Overview ── */}
-            <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2 px-1">
-                    <h5 className="font-bold text-gray-800 dark:text-white">iCafeCloud Overview</h5>
+    
+            {/* ===== HERO SECTION ===== */}
+            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                    <h5 className="font-bold text-gray-800 dark:text-white">
+                        iCafeCloud Overview
+                    </h5>
                 </div>
                 <IcafeShiftSection onRefresh={handleShiftRefresh} />
             </div>
-
-            {/* ── Existing ecommerce dashboard ── */}
+    
+            {/* ===== MAIN DASHBOARD ===== */}
             <Loading loading={isLoading}>
                 {data && (
-                    <div className="flex flex-col gap-4 max-w-full overflow-x-hidden">
-                        <div className="flex flex-col xl:flex-row gap-4">
-                            <div className="flex flex-col gap-4 flex-1 xl:col-span-3">
-                                <OverviewStats data={data.statisticData} refreshSignal={overviewRefreshKey} />
-                                <RevenueBreakdown refreshSignal={overviewRefreshKey} />
-                            </div>
-                            <div className="flex flex-col gap-4 2xl:min-w-[360px]">
-                                <TopGames refreshSignal={overviewRefreshKey} />
-                                <TopProduct refreshSignal={overviewRefreshKey} />
-                                <SessionStats
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+    
+                        {/* LEFT MAIN AREA */}
+                        <div className="xl:col-span-8 flex flex-col gap-4">
+    
+                            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                                <OverviewStats
+                                    data={data.statisticData}
                                     refreshSignal={overviewRefreshKey}
                                 />
                             </div>
+    
+                            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                                
+                                <SessionStats refreshSignal={overviewRefreshKey} />
+                            </div>
+
+                            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                                <RevenueBreakdown
+                                    refreshSignal={overviewRefreshKey}
+                                />
+                            </div>
+    
+                            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                                <RecentOrder data={data.recentOrders} />
+                            </div>
+
+                            
                         </div>
-                        <RecentOrder data={data.recentOrders} />
+    
+                        {/* RIGHT SIDEBAR */}
+                        <div className="xl:col-span-4 flex flex-col gap-4">
+    
+                            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                                <TopProduct refreshSignal={overviewRefreshKey} />
+                            </div>
+    
+                            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                                <TopGames refreshSignal={overviewRefreshKey} />
+                            </div>
+    
+                            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                                <TopPcs refreshSignal={overviewRefreshKey} />
+                            </div> 
+                            
+    
+                        </div>
                     </div>
                 )}
             </Loading>
-
-            {/* ── iCafeCloud Live Reports Charts ── */}
-            <IcafeReportsSection />            
+    
+            {/* ===== REPORTS SECTION ===== */}
+            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                <IcafeReportsSection />
+            </div>
+    
         </div>
     )
 }

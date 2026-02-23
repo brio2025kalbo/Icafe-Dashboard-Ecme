@@ -203,7 +203,15 @@ export type GameItem = {
     pool_times: number
 }
 
+// ─── Report Data (PC Spend) Types ─────────────────────────────────────────────
+
+export type PcSpendItem = {
+    pc_name: string
+    total_spend: string
+}
+
 export type ReportDataWithGames = {
     game?: GameItem[]
+    top_five_pc_spend?: PcSpendItem[]
     [key: string]: unknown
 }
