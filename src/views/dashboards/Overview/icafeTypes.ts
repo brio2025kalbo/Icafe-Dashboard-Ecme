@@ -155,6 +155,26 @@ export type IcafeProductsData = {
 
 export type IcafeProductsResponse = IcafeApiResponse<IcafeProductsData>
 
+// ─── Customer Analysis Types ──────────────────────────────────────────────────
+
+export type IncomeChartItem = {
+    value: number
+    name: string
+}
+
+export type MemberSpendRankingItem = {
+    spend_amount: string
+    member_account: string
+}
+
+export type CustomerAnalysisData = {
+    income_chart: IncomeChartItem[]
+    member_spend_ranking: MemberSpendRankingItem[]
+    [key: string]: unknown
+}
+
+export type CustomerAnalysisResponse = IcafeApiResponse<CustomerAnalysisData>
+
 // ─── Report Data Params ───────────────────────────────────────────────────────
 
 export type ReportDataParams = {
