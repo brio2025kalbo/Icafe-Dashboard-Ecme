@@ -31,3 +31,4 @@ data/*.db-shm
 data/*.db-wal
 build
 node_modules/
+package-lock.json
