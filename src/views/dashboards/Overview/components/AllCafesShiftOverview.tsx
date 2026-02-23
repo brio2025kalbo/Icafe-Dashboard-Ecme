@@ -88,6 +88,13 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
     ]
     const selectedFilterOption = filterOptions.find((o) => o.value === filterCafeId) ?? filterOptions[0]
 
+    // Reset filter when selected cafe is no longer valid
+    useEffect(() => {
+        if (filterCafeId !== ALL_CAFES_VALUE && !allValidCafes.some((c) => c.id === filterCafeId)) {
+            setFilterCafeId(ALL_CAFES_VALUE)
+        }
+    }, [allValidCafes, filterCafeId])
+
     const fetchAll = useCallback(async () => {
         if (validCafes.length === 0) {
             setErrors(['No cafes configured. Click ⚙ to add your cafe API keys.'])
