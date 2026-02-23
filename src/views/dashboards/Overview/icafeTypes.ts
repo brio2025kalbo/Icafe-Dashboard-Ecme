@@ -194,3 +194,16 @@ export type ReportDataParams = {
     pc_group_id?: number
     data_source?: 'recent' | 'history'
 }
+
+// ─── Report Data (Game) Types ─────────────────────────────────────────────────
+
+export type GameItem = {
+    name: string
+    local_times: number
+    pool_times: number
+}
+
+export type ReportDataWithGames = {
+    game?: GameItem[]
+    [key: string]: unknown
+}
