@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Tabs, Notification, toast } from '@/components/ui'
+import Select from '@/components/ui/Select'
 import {
     TbCurrencyDollar,
     TbArrowUpCircle,
@@ -20,7 +21,7 @@ import {
     getTodayBusinessDateStr,
     PERIOD_OPTIONS,
 } from '../utils/periodUtils'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import type { PeriodType, ShiftStats } from '../icafeTypes'
 import classNames from 'classnames'
 
@@ -51,6 +52,8 @@ type Props = { refreshSignal?: number }
 const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
     const cafes = useCafeStore((s) => s.cafes)
     const setCombinedStats = useCafeStore((s) => s.setCombinedStats)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
+    const setFilterCafeId = useCafeStore((s) => s.setFilterCafeId)
     const [period, setPeriod] = useState<PeriodType>('daily')
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [combined, setCombined] = useState<ShiftStats>(EMPTY_STATS)
@@ -72,7 +75,24 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
         return () => clearInterval(timer)
     }, [])
 
-    const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+    const allValidCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+
+    const validCafes = filterCafeId === ALL_CAFES_VALUE
+        ? allValidCafes
+        : allValidCafes.filter((c) => c.id === filterCafeId)
+
+    const filterOptions = [
+        { value: ALL_CAFES_VALUE, label: 'All Cafes' },
+        ...allValidCafes.map((c) => ({ value: c.id, label: c.name })),
+    ]
+    const selectedFilterOption = filterOptions.find((o) => o.value === filterCafeId) ?? filterOptions[0]
+
+    // Reset filter when selected cafe is no longer valid
+    useEffect(() => {
+        if (filterCafeId !== ALL_CAFES_VALUE && !allValidCafes.some((c) => c.id === filterCafeId)) {
+            setFilterCafeId(ALL_CAFES_VALUE)
+        }
+    }, [allValidCafes, filterCafeId])
 
     const fetchAll = useCallback(async () => {
         if (validCafes.length === 0) {
@@ -146,7 +166,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
             )
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cafes, period, selectedDate])
+    }, [cafes, period, selectedDate, filterCafeId])
 
     useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -217,6 +237,19 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                         )}
                     </div>
                 </div>
+                <Select
+                    className="min-w-[160px]"
+                    size="sm"
+                    placeholder="Filter cafe"
+                    value={selectedFilterOption}
+                    options={filterOptions}
+                    isSearchable={false}
+                    onChange={(option) => {
+                        if (option?.value) {
+                            setFilterCafeId(option.value)
+                        }
+                    }}
+                />
             </div>
 
             <Tabs value={period} onChange={(val) => setPeriod(val as PeriodType)}>

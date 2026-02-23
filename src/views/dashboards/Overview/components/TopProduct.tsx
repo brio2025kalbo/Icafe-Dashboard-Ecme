@@ -3,7 +3,7 @@ import Card from '@/components/ui/Card'
 import classNames from '@/utils/classNames'
 import isLastChild from '@/utils/isLastChild'
 import { TbShoppingCart } from 'react-icons/tb'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import { apiGetTopProducts } from '@/services/ReportsService'
 import {
     getBusinessDayRange,
@@ -36,13 +36,17 @@ const ProductAvatar = ({ image, name }: { image?: string; name: string }) => {
 
 const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
     const cafes = useCafeStore((s) => s.cafes)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
     const [products, setProducts] = useState<TopProductItem[]>([])
     const [loading, setLoading] = useState(false)
     const prevSignal = useRef(refreshSignal)
     const hasLoadedOnce = useRef(false)
 
     const fetchTopProducts = useCallback(async () => {
-        const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+        const allValid = cafes.filter((c) => c.cafeId && c.apiKey)
+        const validCafes = filterCafeId === ALL_CAFES_VALUE
+            ? allValid
+            : allValid.filter((c) => c.id === filterCafeId)
         if (validCafes.length === 0) {
             setProducts([])
             return
@@ -107,7 +111,7 @@ const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
         } finally {
             setLoading(false)
         }
-    }, [cafes])
+    }, [cafes, filterCafeId])
 
     useEffect(() => {
         fetchTopProducts()
