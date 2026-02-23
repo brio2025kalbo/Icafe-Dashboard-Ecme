@@ -235,8 +235,8 @@ export type PcStatusItem = {
     pc_mining_tool: string
     pc_mining_options: string
     pc_in_using: number
-    /** Member currently using the PC (from pcList endpoint) */
-    member_account?: string
+    /** Member currently using the PC (from pcList endpoint); null when available */
+    member_account?: string | null
     member_name?: string
     member_balance?: string | number
     [key: string]: unknown

@@ -18,7 +18,7 @@ type CafePcStats = {
 function computeStats(pcs: PcStatusItem[]): Omit<CafePcStats, 'cafeName'> {
     const total = pcs.length
     const enabled = pcs.filter((p) => p.pc_enabled === 1).length
-    const inUse = pcs.filter((p) => p.pc_enabled === 1 && p.pc_in_using === 1).length
+    const inUse = pcs.filter((p) => p.pc_enabled === 1 && p.member_account != null && p.member_account !== '').length
     const available = enabled - inUse
     const utilization = enabled > 0 ? Math.round((inUse / enabled) * 100) : 0
     return { total, enabled, inUse, available, utilization }
