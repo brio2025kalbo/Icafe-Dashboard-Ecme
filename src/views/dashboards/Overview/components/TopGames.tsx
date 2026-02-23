@@ -161,6 +161,17 @@ const TopGames = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
         fetchTopGames()
     }, [fetchTopGames])
 
+    // Revoke blob URLs on unmount to prevent memory leaks
+    useEffect(() => {
+        const cache = posterCache.current
+        return () => {
+            for (const url of cache.values()) {
+                if (url) URL.revokeObjectURL(url)
+            }
+            cache.clear()
+        }
+    }, [])
+
     useEffect(() => {
         if (refreshSignal !== prevSignal.current) {
             prevSignal.current = refreshSignal

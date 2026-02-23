@@ -829,7 +829,7 @@ app.use('/icafe-api', async (req, res) => {
     const cacheKey = upstreamPath
     const now = Date.now()
     const isPoster = /\/games\/\d+\/poster/.test(upstreamPath)
-    const contentType = isPoster ? 'image/png' : 'application/json'
+    const contentType = isPoster ? 'application/octet-stream' : 'application/json'
 
     const cached = cache.get(cacheKey)
     if (cached && cached.expiresAt > now) {
