@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Tabs, Notification, toast } from '@/components/ui'
+import { Notification, toast } from '@/components/ui'
 import Select from '@/components/ui/Select'
 import {
     TbCurrencyDollar,
@@ -19,8 +19,8 @@ import {
     getDateRange,
     getBusinessDayRange,
     getTodayBusinessDateStr,
-    PERIOD_OPTIONS,
 } from '../utils/periodUtils'
+import PeriodSelector from './PeriodSelector'
 import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import type { PeriodType, ShiftStats } from '../icafeTypes'
 import classNames from 'classnames'
@@ -237,30 +237,27 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                         )}
                     </div>
                 </div>
-                <Select
-                    className="min-w-[160px]"
-                    size="sm"
-                    placeholder="Filter cafe"
-                    value={selectedFilterOption}
-                    options={filterOptions}
-                    isSearchable={false}
-                    onChange={(option) => {
-                        if (option?.value) {
-                            setFilterCafeId(option.value)
-                        }
-                    }}
-                />
+                <div className="flex items-center gap-2">
+                    <Select
+                        className="min-w-[160px]"
+                        size="sm"
+                        placeholder="Filter cafe"
+                        value={selectedFilterOption}
+                        options={filterOptions}
+                        isSearchable={false}
+                        onChange={(option) => {
+                            if (option?.value) {
+                                setFilterCafeId(option.value)
+                            }
+                        }}
+                    />
+                    <PeriodSelector
+                        value={period}
+                        onChange={(val) => setPeriod(val)}
+                    />
+                </div>
             </div>
 
-            <Tabs value={period} onChange={(val) => setPeriod(val as PeriodType)}>
-                <Tabs.TabList>
-                    {PERIOD_OPTIONS.map((opt) => (
-                        <Tabs.TabNav key={opt.value} value={opt.value}>
-                            {opt.label}
-                        </Tabs.TabNav>
-                    ))}
-                </Tabs.TabList>
-            </Tabs>
 
             {period === 'daily' && (
                 <div className="flex items-center gap-2">

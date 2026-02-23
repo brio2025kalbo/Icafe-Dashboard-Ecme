@@ -8,7 +8,6 @@ import { useThemeStore } from '@/store/themeStore'
 import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_2, COLOR_4 } from '@/constants/chart.constant'
-import { options } from '../constants'
 import { TbCoin, TbShoppingBagCheck, TbEye, TbReceiptRefund, TbBuildingStore, TbArrowUpCircle, TbShoppingCart, TbChevronLeft, TbChevronRight } from 'react-icons/tb'
 import { apiGetShiftStats } from '@/services/ReportsService'
 import {
@@ -16,6 +15,7 @@ import {
     getBusinessDayRange,
     getTodayBusinessDateStr,
 } from '../utils/periodUtils'
+import PeriodSelector from './PeriodSelector'
 import type { ReactNode } from 'react'
 import type { StatisticData, Period, EcommercePeriod, StatisticCategory } from '../types'
 import useCountUp from '@/hooks/useCountUp'
@@ -129,29 +129,26 @@ const EMPTY_STATS: ShiftStats = {
     shift_count: 0,
 }
 
-/** Map the Overview dropdown period to PeriodType used by the API */
-const periodToPeriodType: Record<Period, PeriodType> = {
-    thisDay: 'daily',
-    thisWeek: 'weekly',
-    thisMonth: 'monthly',
-    thisYear: 'yearly',
-}
-
-/** Map Period to the nearest ecommerce period (for chart/growShrink fallback) */
-function toEcommercePeriod(p: Period): EcommercePeriod {
-    if (p === 'thisDay') return 'thisMonth'
-    return p
+/** Map PeriodType to the nearest ecommerce period (for chart/growShrink fallback) */
+function toEcommercePeriod(p: PeriodType): EcommercePeriod {
+    if (p === 'daily') return 'thisMonth'
+    const map: Record<string, EcommercePeriod> = {
+        weekly: 'thisWeek',
+        monthly: 'thisMonth',
+        yearly: 'thisYear',
+    }
+    return map[p] ?? 'thisMonth'
 }
 
 const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
     const [selectedCategory, setSelectedCategory] =
         useState<StatisticCategory>('totalProfit')
 
-    const [selectedPeriod, setSelectedPeriod] = useState<Period>('thisDay')
+    const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>('daily')
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
 
     useEffect(() => {
-        if (selectedPeriod === 'thisDay') {
+        if (selectedPeriod === 'daily') {
             setSelectedDate(getTodayBusinessDateStr())
         }
     }, [selectedPeriod])
@@ -206,10 +203,9 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
 
         setLoading(true)
 
-        const pt = periodToPeriodType[selectedPeriod]
-        const range = pt === 'daily'
+        const range = selectedPeriod === 'daily'
             ? getBusinessDayRange(selectedDate)
-            : getDateRange(pt)
+            : getDateRange(selectedPeriod)
 
         const results = await Promise.allSettled(
             validCafes.map((c) =>
@@ -266,24 +262,13 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                             }
                         }}
                     />
-                    <Select
-                        className="w-[120px]"
-                        size="sm"
-                        placeholder="Select period"
-                        value={options.filter(
-                            (option) => option.value === selectedPeriod,
-                        )}
-                        options={options}
-                        isSearchable={false}
-                        onChange={(option) => {
-                            if (option?.value) {
-                                setSelectedPeriod(option?.value)
-                            }
-                        }}
+                    <PeriodSelector
+                        value={selectedPeriod}
+                        onChange={(val) => setSelectedPeriod(val)}
                     />
                 </div>
             </div>
-            {selectedPeriod === 'thisDay' && (
+            {selectedPeriod === 'daily' && (
                 <div className="flex items-center gap-2 mt-3">
                     <button
                         onClick={() => setSelectedDate(addDaysToStr(selectedDate, -1))}
