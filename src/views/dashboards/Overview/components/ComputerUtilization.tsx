@@ -32,13 +32,14 @@ function getProgressColorClass(percent: number): string {
 
 const REFRESH_INTERVAL = 30_000
 
-const ComputerUtilization = () => {
+const ComputerUtilization = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
     const cafes = useCafeStore((s) => s.cafes)
     const filterCafeId = useCafeStore((s) => s.filterCafeId)
     const [combinedStats, setCombinedStats] = useState<Omit<CafePcStats, 'cafeName'> | null>(null)
     const [perCafeStats, setPerCafeStats] = useState<CafePcStats[]>([])
     const [loading, setLoading] = useState(false)
     const hasLoadedOnce = useRef(false)
+    const prevSignal = useRef(refreshSignal)
 
     const fetchData = useCallback(async () => {
         const allValid = cafes.filter((c) => c.cafeId && c.apiKey)
@@ -93,6 +94,13 @@ const ComputerUtilization = () => {
         const interval = setInterval(fetchData, REFRESH_INTERVAL)
         return () => clearInterval(interval)
     }, [fetchData])
+
+    useEffect(() => {
+        if (refreshSignal !== prevSignal.current) {
+            prevSignal.current = refreshSignal
+            fetchData()
+        }
+    }, [refreshSignal, fetchData])
 
     const showPerCafe = perCafeStats.length > 1
 
