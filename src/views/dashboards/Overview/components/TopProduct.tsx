@@ -13,6 +13,27 @@ import type { TopProductItem } from '../icafeTypes'
 
 const MAX_PRODUCTS = 10
 
+const ProductAvatar = ({ image, name }: { image?: string; name: string }) => {
+    const [failed, setFailed] = useState(false)
+
+    if (image && !failed) {
+        return (
+            <img
+                src={image}
+                alt={name}
+                className="w-[40px] h-[40px] rounded-full object-cover"
+                onError={() => setFailed(true)}
+            />
+        )
+    }
+
+    return (
+        <div className="flex items-center justify-center w-[40px] h-[40px] rounded-full bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-400">
+            <TbShoppingCart className="text-lg" />
+        </div>
+    )
+}
+
 const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
     const cafes = useCafeStore((s) => s.cafes)
     const [products, setProducts] = useState<TopProductItem[]>([])
@@ -45,7 +66,7 @@ const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
             // Merge products across all cafes
             const productMap = new Map<
                 string,
-                { total_sold: number; total_cash: number }
+                { total_sold: number; total_cash: number; image?: string }
             >()
             for (const result of results) {
                 if (result.status !== 'fulfilled') continue
@@ -54,10 +75,14 @@ const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
                     if (existing) {
                         existing.total_sold += item.total_sold
                         existing.total_cash += item.total_cash
+                        if (!existing.image && item.image) {
+                            existing.image = item.image
+                        }
                     } else {
                         productMap.set(item.product_name, {
                             total_sold: item.total_sold,
                             total_cash: item.total_cash,
+                            image: item.image,
                         })
                     }
                 }
@@ -114,9 +139,10 @@ const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
                             )}
                         >
                             <div className="flex items-center gap-2">
-                                <div className="flex items-center justify-center w-[40px] h-[40px] rounded-full bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-400">
-                                    <TbShoppingCart className="text-lg" />
-                                </div>
+                                <ProductAvatar
+                                    image={product.image}
+                                    name={product.product_name}
+                                />
                                 <div>
                                     <div className="heading-text font-bold">
                                         {product.product_name}

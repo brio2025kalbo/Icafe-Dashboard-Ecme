@@ -128,7 +128,18 @@ export type TopProductItem = {
     product_name: string
     total_sold: number
     total_cash: number
+    image?: string
 }
+
+/** Product entry returned by the iCafeCloud products catalog API */
+export type IcafeProduct = {
+    product_id: number
+    product_name: string
+    image?: string
+    [key: string]: unknown
+}
+
+export type IcafeProductsResponse = IcafeApiResponse<IcafeProduct[]>
 
 // ─── Report Data Params ───────────────────────────────────────────────────────
 

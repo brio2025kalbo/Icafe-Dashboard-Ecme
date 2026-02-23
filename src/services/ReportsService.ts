@@ -12,6 +12,7 @@ import type {
     ShiftStats,
     ShiftBreakdownRow,
     TopProductItem,
+    IcafeProductsResponse,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -310,6 +311,21 @@ export async function apiGetShiftStats(
     }, empty)
 }
 
+// ─── Products Catalog ─────────────────────────────────────────────────────────
+
+export async function apiGetCafeProducts(
+    cafeId: string,
+): Promise<IcafeProductsResponse> {
+    const cafe = getCafeById(cafeId)
+    const response = await icafeAxios.get<IcafeProductsResponse>(
+        `/cafe/${cafe.cafeId}/products`,
+        {
+            headers: { Authorization: `Bearer ${cafe.apiKey}` },
+        },
+    )
+    return response.data
+}
+
 // ─── Top Products ─────────────────────────────────────────────────────────────
 
 export async function apiGetTopProducts(
@@ -340,13 +356,28 @@ export async function apiGetTopProducts(
 
     if (!items || items.length === 0) return []
 
-    const details = await Promise.allSettled(
-        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
-    )
+    // Fetch shift details and product catalog in parallel
+    const [detailResults, catalogResult] = await Promise.all([
+        Promise.allSettled(
+            items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+        ),
+        apiGetCafeProducts(cafeId).catch(() => null),
+    ])
 
-    const productMap = new Map<string, { total_sold: number; total_cash: number }>()
+    // Build a name→image lookup from the product catalog
+    const imageMap = new Map<string, string>()
+    if (catalogResult?.data) {
+        for (const p of catalogResult.data) {
+            const name = String(p.product_name ?? '').trim().toLowerCase()
+            if (name && p.image) {
+                imageMap.set(name, String(p.image))
+            }
+        }
+    }
 
-    for (const result of details) {
+    const productMap = new Map<string, { total_sold: number; total_cash: number; image?: string }>()
+
+    for (const result of detailResults) {
         if (result.status !== 'fulfilled') continue
         const d = result.value.data
         if (!d) continue
@@ -362,7 +393,8 @@ export async function apiGetTopProducts(
                 existing.total_sold += sold
                 existing.total_cash += cash
             } else {
-                productMap.set(name, { total_sold: sold, total_cash: cash })
+                const image = imageMap.get(name.toLowerCase())
+                productMap.set(name, { total_sold: sold, total_cash: cash, image })
             }
         }
     }
