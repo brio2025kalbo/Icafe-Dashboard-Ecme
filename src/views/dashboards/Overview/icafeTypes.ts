@@ -123,6 +123,13 @@ export type ShiftBreakdownRow = {
 
 export type PeriodType = 'daily' | 'weekly' | 'monthly' | 'yearly'
 
+/** Aggregated top product computed from shop_sales across shifts */
+export type TopProductItem = {
+    product_name: string
+    total_sold: number
+    total_cash: number
+}
+
 // ─── Report Data Params ───────────────────────────────────────────────────────
 
 export type ReportDataParams = {

@@ -54,7 +54,7 @@ const SalesDashboard = () => {
                             </div>
                             <div className="flex flex-col gap-4 2xl:min-w-[360px]">
                                 <SalesTarget data={data.salesTarget} />
-                                <TopProduct data={data.topProduct} />
+                                <TopProduct />
                                 <RevenueByChannel
                                     data={data.revenueByChannel}
                                 />

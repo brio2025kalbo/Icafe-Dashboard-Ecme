@@ -11,6 +11,7 @@ import type {
     ShiftListParams,
     ShiftStats,
     ShiftBreakdownRow,
+    TopProductItem,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -307,4 +308,66 @@ export async function apiGetShiftStats(
             shift_count:     acc.shift_count     + 1,
         }
     }, empty)
+}
+
+// ─── Top Products ─────────────────────────────────────────────────────────────
+
+export async function apiGetTopProducts(
+    cafeId: string,
+    params: ShiftListParams,
+): Promise<TopProductItem[]> {
+    let items: ShiftListResponse['data']
+
+    if (
+        params.date_start &&
+        params.date_end &&
+        params.date_start !== params.date_end
+    ) {
+        const resp = await apiGetShiftList(cafeId, {
+            ...params,
+            time_start: '00:00',
+            time_end:   '23:59',
+        })
+        items = resp.data ?? []
+    } else {
+        const bizDate = params.date_start
+        const parts   = bizDate.split('-').map(Number)
+        const d       = new Date(parts[0], parts[1] - 1, parts[2])
+        d.setDate(d.getDate() + 1)
+        const nextDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        items = await apiGetBusinessDayShiftList(cafeId, bizDate, nextDate)
+    }
+
+    if (!items || items.length === 0) return []
+
+    const details = await Promise.allSettled(
+        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+    )
+
+    const productMap = new Map<string, { total_sold: number; total_cash: number }>()
+
+    for (const result of details) {
+        if (result.status !== 'fulfilled') continue
+        const d = result.value.data
+        if (!d) continue
+
+        const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
+        for (const item of shopSalesArr) {
+            const name = String(item.product_name ?? '').trim()
+            if (!name) continue
+            const sold = parseFloat(String(item.sold ?? 0)) || 0
+            const cash = parseFloat(String(item.cash ?? 0)) || 0
+            const existing = productMap.get(name)
+            if (existing) {
+                existing.total_sold += sold
+                existing.total_cash += cash
+            } else {
+                productMap.set(name, { total_sold: sold, total_cash: cash })
+            }
+        }
+    }
+
+    return Array.from(productMap.entries())
+        .map(([product_name, data]) => ({ product_name, ...data }))
+        .sort((a, b) => b.total_sold - a.total_sold)
 }
