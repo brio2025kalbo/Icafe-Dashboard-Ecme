@@ -22,16 +22,6 @@ import type { StatisticData, Period, EcommercePeriod, StatisticCategory } from '
 import useCountUp from '@/hooks/useCountUp'
 import type { PeriodType, ShiftStats } from '../icafeTypes'
 
-function addDaysToStr(dateStr: string, n: number): string {
-    const parts = dateStr.split('-').map(Number)
-    const d = new Date(parts[0], parts[1] - 1, parts[2])
-    d.setDate(d.getDate() + n)
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
-}
-
 function parseLocalDate(dateStr: string): Date {
     const parts = dateStr.split('-').map(Number)
     return new Date(parts[0], parts[1] - 1, parts[2])
@@ -42,6 +32,12 @@ function toDateStr(d: Date): string {
     const m = String(d.getMonth() + 1).padStart(2, '0')
     const day = String(d.getDate()).padStart(2, '0')
     return `${y}-${m}-${day}`
+}
+
+function addDaysToStr(dateStr: string, n: number): string {
+    const d = parseLocalDate(dateStr)
+    d.setDate(d.getDate() + n)
+    return toDateStr(d)
 }
 
 function formatCurrency(val: number): string {

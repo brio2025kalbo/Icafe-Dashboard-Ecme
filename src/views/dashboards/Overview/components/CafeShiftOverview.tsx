@@ -45,16 +45,6 @@ const EMPTY_STATS: ShiftStats = {
 const WARN_MINUTES  = 3   // orange warning
 const STALE_MINUTES = 10  // overlay badge
 
-function addDaysToStr(dateStr: string, n: number): string {
-    const parts = dateStr.split('-').map(Number)
-    const d = new Date(parts[0], parts[1] - 1, parts[2])
-    d.setDate(d.getDate() + n)
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
-}
-
 function parseLocalDate(dateStr: string): Date {
     const parts = dateStr.split('-').map(Number)
     return new Date(parts[0], parts[1] - 1, parts[2])
@@ -65,6 +55,12 @@ function toDateStr(d: Date): string {
     const m = String(d.getMonth() + 1).padStart(2, '0')
     const day = String(d.getDate()).padStart(2, '0')
     return `${y}-${m}-${day}`
+}
+
+function addDaysToStr(dateStr: string, n: number): string {
+    const d = parseLocalDate(dateStr)
+    d.setDate(d.getDate() + n)
+    return toDateStr(d)
 }
 
 const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props) => {
