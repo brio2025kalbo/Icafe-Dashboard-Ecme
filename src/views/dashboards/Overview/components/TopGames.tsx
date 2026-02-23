@@ -6,6 +6,7 @@ import { TbDeviceGamepad2 } from 'react-icons/tb'
 import { useCafeStore } from '@/store/cafeStore'
 import {
     apiGetReportData,
+    apiGetCafeGames,
     apiGetGamePosterBlob,
 } from '@/services/ReportsService'
 import { getDateRange } from '../utils/periodUtils'
@@ -13,7 +14,7 @@ import type { GameItem, ReportDataWithGames } from '../icafeTypes'
 
 const MAX_GAMES = 10
 
-type GameWithPoster = GameItem & { poster?: string; cafeId?: string }
+type GameWithPoster = GameItem & { poster?: string }
 
 const GamePoster = ({ poster, name }: { poster?: string; name: string }) => {
     const [failed, setFailed] = useState(false)
@@ -57,63 +58,85 @@ const TopGames = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
         try {
             const range = getDateRange('daily')
 
-            const reportResults = await Promise.allSettled(
-                validCafes.map((c) =>
-                    apiGetReportData<ReportDataWithGames>(c.id, {
-                        date_start: range.date_start,
-                        date_end: range.date_end,
-                        time_start: range.time_start,
-                        time_end: range.time_end,
-                    }),
+            // Fetch report data and games catalog in parallel
+            const [reportResults, catalogResults] = await Promise.all([
+                Promise.allSettled(
+                    validCafes.map((c) =>
+                        apiGetReportData<ReportDataWithGames>(c.id, {
+                            date_start: range.date_start,
+                            date_end: range.date_end,
+                            time_start: range.time_start,
+                            time_end: range.time_end,
+                        }),
+                    ),
                 ),
-            )
+                Promise.allSettled(
+                    validCafes.map((c) => apiGetCafeGames(c.id)),
+                ),
+            ])
 
-            // Merge games across all cafes, keeping pkg_id and cafeId for poster fetch
+            // Build a case-insensitive name → { gameId, cafeId } lookup
+            // from the games catalog so we can resolve poster URLs
+            const gameIdMap = new Map<
+                string,
+                { gameId: number; cafeId: string }
+            >()
+            catalogResults.forEach((result, idx) => {
+                if (result.status !== 'fulfilled') return
+                for (const g of result.value) {
+                    const key = String(g.game_name ?? '')
+                        .trim()
+                        .toLowerCase()
+                    if (key && g.game_id && !gameIdMap.has(key)) {
+                        gameIdMap.set(key, {
+                            gameId: g.game_id,
+                            cafeId: validCafes[idx].id,
+                        })
+                    }
+                }
+            })
+
+            // Merge games across all cafes
             const gameMap = new Map<
                 string,
-                { local_times: number; pool_times: number; pkg_id?: number; cafeId?: string }
+                { local_times: number; pool_times: number }
             >()
-            reportResults.forEach((result, idx) => {
-                if (result.status !== 'fulfilled') return
+            for (const result of reportResults) {
+                if (result.status !== 'fulfilled') continue
                 const gameList = result.value.data?.game
-                if (!Array.isArray(gameList)) return
+                if (!Array.isArray(gameList)) continue
                 for (const item of gameList) {
                     const existing = gameMap.get(item.name)
                     if (existing) {
                         existing.local_times += item.local_times
                         existing.pool_times += item.pool_times
-                        // Keep the first pkg_id found
-                        if (!existing.pkg_id && item.pkg_id) {
-                            existing.pkg_id = item.pkg_id
-                            existing.cafeId = validCafes[idx].id
-                        }
                     } else {
                         gameMap.set(item.name, {
                             local_times: item.local_times,
                             pool_times: item.pool_times,
-                            pkg_id: item.pkg_id,
-                            cafeId: item.pkg_id ? validCafes[idx].id : undefined,
                         })
                     }
                 }
-            })
+            }
 
             const topGames = Array.from(gameMap.entries())
                 .map(([name, data]) => ({ name, ...data }))
                 .sort((a, b) => b.local_times - a.local_times)
                 .slice(0, MAX_GAMES)
 
-            // Fetch poster blob URLs using pkg_id directly
+            // Fetch poster blob URLs by looking up game_id from catalog
             const posterPromises = topGames.map(async (game) => {
-                if (!game.pkg_id || !game.cafeId) return null
+                const key = game.name.trim().toLowerCase()
+                const info = gameIdMap.get(key)
+                if (!info) return null
 
-                const cacheKey = `${game.cafeId}:${game.pkg_id}`
+                const cacheKey = `${info.cafeId}:${info.gameId}`
                 const cached = posterCache.current.get(cacheKey)
                 if (cached !== undefined) return cached
 
                 const blobUrl = await apiGetGamePosterBlob(
-                    game.cafeId,
-                    game.pkg_id,
+                    info.cafeId,
+                    info.gameId,
                 )
                 posterCache.current.set(cacheKey, blobUrl)
                 return blobUrl
