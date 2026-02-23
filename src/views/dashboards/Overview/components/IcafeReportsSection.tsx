@@ -2,7 +2,6 @@ import { useCafeStore } from '@/store/cafeStore'
 import { useAuth } from '@/auth'
 import IcafeReportChart from './IcafeReportChart'
 import CafeSelector from './CafeSelector'
-import CafeSettingsDialog from './CafeSettingsDialog'
 
 const IcafeReportsSection = () => {
     const cafes = useCafeStore((state) => state.cafes)
@@ -19,7 +18,6 @@ const IcafeReportsSection = () => {
                 <h4 className="mb-0">iCafeCloud Reports</h4>
                 <div className="flex items-center gap-2">
                     <CafeSelector />
-                    {isAdmin && <CafeSettingsDialog />}
                 </div>
             </div>
 

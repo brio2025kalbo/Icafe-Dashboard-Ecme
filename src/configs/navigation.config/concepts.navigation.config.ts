@@ -92,7 +92,7 @@ const conceptsNavigationConfig: NavigationTree[] = [
                     {
                         key: 'concepts.account.pricing',
                         path: `${CONCEPTS_PREFIX_PATH}/account/pricing`,
-                        title: 'API',
+                        title: 'Cafe Management',
                         translateKey: 'nav.conceptsAccount.pricing',
                         icon: 'accountPricing',
                         type: NAV_ITEM_TYPE_ITEM,
@@ -100,7 +100,7 @@ const conceptsNavigationConfig: NavigationTree[] = [
                         meta: {
                             description: {
                                 translateKey: 'nav.conceptsAccount.pricingDesc',
-                                label: 'View pricing plans',
+                                label: 'Manage your internet cafes',
                             },
                         },
                         subMenu: [],
