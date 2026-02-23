@@ -7,6 +7,7 @@ import TopGames from './components/TopGames'
 import TopProduct from './components/TopProduct'
 import TopPcs from './components/TopPcs'
 import SessionStats from './components/SessionStats'
+import ComputerUtilization from './components/ComputerUtilization'
 import IcafeReportsSection from './components/IcafeReportsSection'
 import IcafeShiftSection from './components/IcafeShiftSection'
 import { apiGetEcommerceDashboard } from '@/services/DashboardService'
@@ -72,7 +73,7 @@ const SalesDashboard = () => {
                                 <RecentOrder data={data.recentOrders} />
                             </div>
 
-                            
+                            <ComputerUtilization />
                         </div>
     
                         {/* RIGHT SIDEBAR */}

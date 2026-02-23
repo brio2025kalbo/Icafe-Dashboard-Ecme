@@ -15,6 +15,7 @@ import type {
     IcafeProduct,
     IcafeProductsResponse,
     CustomerAnalysisResponse,
+    PcStatusResponse,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -457,4 +458,19 @@ export async function apiGetTopProducts(
     return Array.from(productMap.entries())
         .map(([product_name, data]) => ({ product_name, ...data }))
         .sort((a, b) => b.total_sold - a.total_sold)
+}
+
+// ─── PC Status ────────────────────────────────────────────────────────────────
+
+export async function apiGetCafePcs(
+    cafeId: string,
+): Promise<PcStatusResponse> {
+    const cafe = getCafeById(cafeId)
+    const response = await icafeAxios.get<PcStatusResponse>(
+        `/cafe/${cafe.cafeId}/pcList`,
+        {
+            headers: { Authorization: `Bearer ${cafe.apiKey}` },
+        },
+    )
+    return response.data
 }

@@ -215,3 +215,31 @@ export type ReportDataWithGames = {
     top_five_pc_spend?: PcSpendItem[]
     [key: string]: unknown
 }
+
+// ─── PC Status Types ──────────────────────────────────────────────────────────
+
+export type PcStatusItem = {
+    pc_icafe_id: number
+    pc_ip: string
+    pc_name: string
+    pc_mac: string
+    pc_comment: string
+    pc_console_type: number
+    pc_group_id: number
+    pc_area_name: string
+    pc_box_position: string
+    pc_box_top: number
+    pc_box_left: number
+    pc_enabled: number
+    pc_mining_enabled: number
+    pc_mining_tool: string
+    pc_mining_options: string
+    pc_in_using: number
+    /** Member currently using the PC (from pcList endpoint) */
+    member_account?: string
+    member_name?: string
+    member_balance?: string | number
+    [key: string]: unknown
+}
+
+export type PcStatusResponse = IcafeApiResponse<PcStatusItem[]>
