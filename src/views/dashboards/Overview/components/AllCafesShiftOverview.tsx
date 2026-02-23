@@ -22,7 +22,7 @@ import {
 } from '../utils/periodUtils'
 import PeriodSelector from './PeriodSelector'
 import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
-import type { PeriodType, ShiftStats } from '../icafeTypes'
+import type { ShiftStats } from '../icafeTypes'
 import classNames from 'classnames'
 
 const EMPTY_STATS: ShiftStats = {
@@ -54,7 +54,8 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
     const setCombinedStats = useCafeStore((s) => s.setCombinedStats)
     const filterCafeId = useCafeStore((s) => s.filterCafeId)
     const setFilterCafeId = useCafeStore((s) => s.setFilterCafeId)
-    const [period, setPeriod] = useState<PeriodType>('daily')
+    const period = useCafeStore((s) => s.filterPeriod)
+    const setPeriod = useCafeStore((s) => s.setFilterPeriod)
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [combined, setCombined] = useState<ShiftStats>(EMPTY_STATS)
     const [loading, setLoading] = useState(false)

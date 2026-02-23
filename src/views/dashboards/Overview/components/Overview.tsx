@@ -144,7 +144,8 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
     const [selectedCategory, setSelectedCategory] =
         useState<StatisticCategory>('totalProfit')
 
-    const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>('daily')
+    const selectedPeriod = useCafeStore((s) => s.filterPeriod)
+    const setSelectedPeriod = useCafeStore((s) => s.setFilterPeriod)
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
 
     useEffect(() => {

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { TOKEN_NAME_IN_STORAGE } from '@/constants/api.constant'
 import type { Cafe } from '@/@types/cafe'
-import type { ShiftStats } from '@/views/dashboards/Overview/icafeTypes'
+import type { ShiftStats, PeriodType } from '@/views/dashboards/Overview/icafeTypes'
 
 function authHeaders(): HeadersInit {
     const token = localStorage.getItem(TOKEN_NAME_IN_STORAGE) || ''
@@ -17,6 +17,7 @@ type CafeState = {
     cafes: Cafe[]
     selectedCafeId: string | null
     filterCafeId: string
+    filterPeriod: PeriodType
     loading: boolean
     error: string | null
     combinedStats: ShiftStats | null
@@ -30,6 +31,7 @@ type CafeAction = {
     setCafes: (cafes: Cafe[]) => void
     setSelectedCafeId: (cafeId: string | null) => void
     setFilterCafeId: (cafeId: string) => void
+    setFilterPeriod: (period: PeriodType) => void
     setCombinedStats: (stats: ShiftStats) => void
 }
 
@@ -37,6 +39,7 @@ export const useCafeStore = create<CafeState & CafeAction>()((set) => ({
     cafes: [],
     selectedCafeId: null,
     filterCafeId: ALL_CAFES_VALUE,
+    filterPeriod: 'daily' as PeriodType,
     loading: false,
     error: null,
     combinedStats: null,
@@ -100,5 +103,6 @@ export const useCafeStore = create<CafeState & CafeAction>()((set) => ({
     setCafes: (cafes) => set({ cafes }),
     setSelectedCafeId: (cafeId) => set({ selectedCafeId: cafeId }),
     setFilterCafeId: (cafeId) => set({ filterCafeId: cafeId }),
+    setFilterPeriod: (period) => set({ filterPeriod: period }),
     setCombinedStats: (stats) => set({ combinedStats: stats }),
 }))

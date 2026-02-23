@@ -20,8 +20,8 @@ import {
     getBusinessDayRange,
     getTodayBusinessDateStr,
 } from '../utils/periodUtils'
-import PeriodSelector from './PeriodSelector'
-import type { PeriodType, ShiftStats, ShiftBreakdownRow } from '../icafeTypes'
+import { useCafeStore } from '@/store/cafeStore'
+import type { ShiftStats, ShiftBreakdownRow } from '../icafeTypes'
 import type { Cafe } from '@/@types/cafe'
 import classNames from 'classnames'
 
@@ -55,7 +55,7 @@ function addDaysToStr(dateStr: string, n: number): string {
 }
 
 const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props) => {
-    const [period, setPeriod] = useState<PeriodType>('daily')
+    const period = useCafeStore((s) => s.filterPeriod)
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [stats, setStats] = useState<ShiftStats>(EMPTY_STATS)
     const [breakdown, setBreakdown] = useState<ShiftBreakdownRow[]>([])
@@ -244,13 +244,6 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 </div>
             )}
 
-            {/* Period selector */}
-            <div className="flex items-center justify-between flex-wrap gap-2">
-                <PeriodSelector
-                    value={period}
-                    onChange={(val) => setPeriod(val)}
-                />
-            </div>
 
             {/* Date navigator */}
             {period === 'daily' && (
