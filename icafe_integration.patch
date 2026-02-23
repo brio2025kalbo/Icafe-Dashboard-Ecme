@@ -1,0 +1,337 @@
+diff --git a/package-lock.json b/package-lock.json
+index 3820092..1917c1a 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -23,6 +23,7 @@
+         "@tiptap/react": "^2.10.4",
+         "@tiptap/starter-kit": "^2.10.4",
+         "@visx/pattern": "^3.13.0-alpha.0",
++        "apexcharts": "^5.6.0",
+         "axios": "^1.7.7",
+         "axios-mock-adapter": "^2.0.0",
+         "classnames": "^2.5.1",
+@@ -34,6 +35,7 @@
+         "framer-motion": "12.23.12",
+         "gantt-task-react": "^0.3.9",
+         "html-react-parser": "^5.2.1",
++        "i18next": "^25.8.13",
+         "js-cookie": "^3.0.5",
+         "lodash": "^4.17.21",
+         "marked": "^16.2.0",
+@@ -2502,67 +2504,6 @@
+       "integrity": "sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==",
+       "license": "MIT"
+     },
+-    "node_modules/@svgdotjs/svg.draggable.js": {
+-      "version": "3.0.6",
+-      "resolved": "https://registry.npmjs.org/@svgdotjs/svg.draggable.js/-/svg.draggable.js-3.0.6.tgz",
+-      "integrity": "sha512-7iJFm9lL3C40HQcqzEfezK2l+dW2CpoVY3b77KQGqc8GXWa6LhhmX5Ckv7alQfUXBuZbjpICZ+Dvq1czlGx7gA==",
+-      "license": "MIT",
+-      "peer": true,
+-      "peerDependencies": {
+-        "@svgdotjs/svg.js": "^3.2.4"
+-      }
+-    },
+-    "node_modules/@svgdotjs/svg.filter.js": {
+-      "version": "3.0.9",
+-      "resolved": "https://registry.npmjs.org/@svgdotjs/svg.filter.js/-/svg.filter.js-3.0.9.tgz",
+-      "integrity": "sha512-/69XMRCDoam2HgC4ldHIaDgeQf1ViHIsa0Ld4uWgiXtZ+E24DWHe/9Ib6kbNiZ7WRIdlVokUDR1Fg0kjIpkfbw==",
+-      "license": "MIT",
+-      "peer": true,
+-      "dependencies": {
+-        "@svgdotjs/svg.js": "^3.2.4"
+-      },
+-      "engines": {
+-        "node": ">= 0.8.0"
+-      }
+-    },
+-    "node_modules/@svgdotjs/svg.js": {
+-      "version": "3.2.5",
+-      "resolved": "https://registry.npmjs.org/@svgdotjs/svg.js/-/svg.js-3.2.5.tgz",
+-      "integrity": "sha512-/VNHWYhNu+BS7ktbYoVGrCmsXDh+chFMaONMwGNdIBcFHrWqk2jY8fNyr3DLdtQUIalvkPfM554ZSFa3dm3nxQ==",
+-      "license": "MIT",
+-      "peer": true,
+-      "funding": {
+-        "type": "github",
+-        "url": "https://github.com/sponsors/Fuzzyma"
+-      }
+-    },
+-    "node_modules/@svgdotjs/svg.resize.js": {
+-      "version": "2.0.5",
+-      "resolved": "https://registry.npmjs.org/@svgdotjs/svg.resize.js/-/svg.resize.js-2.0.5.tgz",
+-      "integrity": "sha512-4heRW4B1QrJeENfi7326lUPYBCevj78FJs8kfeDxn5st0IYPIRXoTtOSYvTzFWgaWWXd3YCDE6ao4fmv91RthA==",
+-      "license": "MIT",
+-      "peer": true,
+-      "engines": {
+-        "node": ">= 14.18"
+-      },
+-      "peerDependencies": {
+-        "@svgdotjs/svg.js": "^3.2.4",
+-        "@svgdotjs/svg.select.js": "^4.0.1"
+-      }
+-    },
+-    "node_modules/@svgdotjs/svg.select.js": {
+-      "version": "4.0.3",
+-      "resolved": "https://registry.npmjs.org/@svgdotjs/svg.select.js/-/svg.select.js-4.0.3.tgz",
+-      "integrity": "sha512-qkMgso1sd2hXKd1FZ1weO7ANq12sNmQJeGDjs46QwDVsxSRcHmvWKL2NDF7Yimpwf3sl5esOLkPqtV2bQ3v/Jg==",
+-      "license": "MIT",
+-      "peer": true,
+-      "engines": {
+-        "node": ">= 14.18"
+-      },
+-      "peerDependencies": {
+-        "@svgdotjs/svg.js": "^3.2.4"
+-      }
+-    },
+     "node_modules/@tailwindcss/node": {
+       "version": "4.1.17",
+       "resolved": "https://registry.npmjs.org/@tailwindcss/node/-/node-4.1.17.tgz",
+@@ -3586,7 +3527,7 @@
+       "version": "19.2.3",
+       "resolved": "https://registry.npmjs.org/@types/react-dom/-/react-dom-19.2.3.tgz",
+       "integrity": "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==",
+-      "devOptional": true,
++      "dev": true,
+       "license": "MIT",
+       "peerDependencies": {
+         "@types/react": "^19.2.0"
+@@ -4250,8 +4191,7 @@
+       "version": "1.0.3",
+       "resolved": "https://registry.npmjs.org/@yr/monotone-cubic-spline/-/monotone-cubic-spline-1.0.3.tgz",
+       "integrity": "sha512-FQXkOta0XBSUPHndIKON2Y9JeQz5ZeMqLYZVVK93FliNBFm7LNMIZmY6FrMEB9XPcDbE2bekMbZD6kzDkxwYjA==",
+-      "license": "MIT",
+-      "peer": true
++      "license": "MIT"
+     },
+     "node_modules/acorn": {
+       "version": "8.15.0",
+@@ -4318,17 +4258,11 @@
+       }
+     },
+     "node_modules/apexcharts": {
+-      "version": "5.3.6",
+-      "resolved": "https://registry.npmjs.org/apexcharts/-/apexcharts-5.3.6.tgz",
+-      "integrity": "sha512-sVEPw+J0Gp0IHQabKu8cfdsxlfME0e36Wid7RIaPclGM2OUt+O7O4+6mfAmTUYhy5bDk8cNHzEhPfVtLCIXEJA==",
++      "version": "5.6.0",
++      "resolved": "https://registry.npmjs.org/apexcharts/-/apexcharts-5.6.0.tgz",
++      "integrity": "sha512-BZua59yedRsaDfnxkzNrkyLCvluq2c3ZDBIz4joxSKtgr0xDQXQ5dzceMhf/TpTbAjaF+2NYIpLP3BEEIG2s/w==",
+       "license": "SEE LICENSE IN LICENSE",
+-      "peer": true,
+       "dependencies": {
+-        "@svgdotjs/svg.draggable.js": "^3.0.4",
+-        "@svgdotjs/svg.filter.js": "^3.0.8",
+-        "@svgdotjs/svg.js": "^3.2.4",
+-        "@svgdotjs/svg.resize.js": "^2.0.2",
+-        "@svgdotjs/svg.select.js": "^4.0.1",
+         "@yr/monotone-cubic-spline": "^1.0.3"
+       }
+     },
+@@ -7145,9 +7079,9 @@
+       "license": "MIT"
+     },
+     "node_modules/i18next": {
+-      "version": "25.6.3",
+-      "resolved": "https://registry.npmjs.org/i18next/-/i18next-25.6.3.tgz",
+-      "integrity": "sha512-AEQvoPDljhp67a1+NsnG/Wb1Nh6YoSvtrmeEd24sfGn3uujCtXCF3cXpr7ulhMywKNFF7p3TX1u2j7y+caLOJg==",
++      "version": "25.8.13",
++      "resolved": "https://registry.npmjs.org/i18next/-/i18next-25.8.13.tgz",
++      "integrity": "sha512-E0vzjBY1yM+nsFrtgkjLhST2NBkirkvOVoQa0MSldhsuZ3jUge7ZNpuwG0Cfc74zwo5ZwRzg3uOgT+McBn32iA==",
+       "funding": [
+         {
+           "type": "individual",
+@@ -7163,7 +7097,6 @@
+         }
+       ],
+       "license": "MIT",
+-      "peer": true,
+       "dependencies": {
+         "@babel/runtime": "^7.28.4"
+       },
+@@ -11413,7 +11346,7 @@
+       "version": "5.9.3",
+       "resolved": "https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz",
+       "integrity": "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==",
+-      "devOptional": true,
++      "dev": true,
+       "license": "Apache-2.0",
+       "bin": {
+         "tsc": "bin/tsc",
+diff --git a/package.json b/package.json
+index a0381cb..e9ae6ff 100644
+--- a/package.json
++++ b/package.json
+@@ -29,6 +29,7 @@
+     "@tiptap/react": "^2.10.4",
+     "@tiptap/starter-kit": "^2.10.4",
+     "@visx/pattern": "^3.13.0-alpha.0",
++    "apexcharts": "^5.6.0",
+     "axios": "^1.7.7",
+     "axios-mock-adapter": "^2.0.0",
+     "classnames": "^2.5.1",
+@@ -40,6 +41,7 @@
+     "framer-motion": "12.23.12",
+     "gantt-task-react": "^0.3.9",
+     "html-react-parser": "^5.2.1",
++    "i18next": "^25.8.13",
+     "js-cookie": "^3.0.5",
+     "lodash": "^4.17.21",
+     "marked": "^16.2.0",
+diff --git a/src/App.tsx b/src/App.tsx
+index d8fee7b..71d3c35 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -3,13 +3,24 @@ import Theme from '@/components/template/Theme'
+ import Layout from '@/components/layouts'
+ import { AuthProvider } from '@/auth'
+ import Views from '@/views'
+-import appConfig from './configs/app.config'
++import appConfig from './configs/app.config';
++import { useCafeStore } from '@/store/cafeStore';
++import { useEffect } from 'react';
+ 
+ if (appConfig.enableMock) {
+     import('./mock')
+ }
+ 
+ function App() {
++    const setCafes = useCafeStore((state) => state.setCafes);
++    const setSelectedCafeId = useCafeStore((state) => state.setSelectedCafeId);
++
++    useEffect(() => {
++        setCafes(appConfig.initialCafes);
++        if (appConfig.initialCafes.length > 0) {
++            setSelectedCafeId(appConfig.initialCafes[0].id);
++        }
++    }, [setCafes, setSelectedCafeId]);
+     return (
+         <Theme>
+             <BrowserRouter>
+diff --git a/src/configs/app.config.ts b/src/configs/app.config.ts
+index e8045db..bcb1d35 100644
+--- a/src/configs/app.config.ts
++++ b/src/configs/app.config.ts
+@@ -1,12 +1,22 @@
++
++
++export type CafeConfig = {
++    id: string;
++    name: string;
++    apiKey: string;
++};
++
+ export type AppConfig = {
+-    apiPrefix: string
+-    authenticatedEntryPath: string
+-    unAuthenticatedEntryPath: string
+-    locale: string
+-    accessTokenPersistStrategy: 'localStorage' | 'sessionStorage' | 'cookies'
+-    enableMock: boolean
+-    activeNavTranslation: boolean
+-}
++    apiPrefix: string;
++    authenticatedEntryPath: string;
++    unAuthenticatedEntryPath: string;
++    locale: string;
++    accessTokenPersistStrategy: 'localStorage' | 'sessionStorage' | 'cookies';
++    enableMock: boolean;
++    activeNavTranslation: boolean;
++    reportsApiPrefix: string;
++    initialCafes: CafeConfig[];
++};
+ 
+ const appConfig: AppConfig = {
+     apiPrefix: '/api',
+@@ -16,6 +26,12 @@ const appConfig: AppConfig = {
+     accessTokenPersistStrategy: 'localStorage',
+     enableMock: true,
+     activeNavTranslation: false,
+-}
++    reportsApiPrefix: 'https://api.icafecloud.com/api/v2',
++    initialCafes: [
++        { id: 'cafe1', name: 'Cafe A', apiKey: 'YOUR_CAFE_A_API_KEY' },
++        { id: 'cafe2', name: 'Cafe B', apiKey: 'YOUR_CAFE_B_API_KEY' },
++    ],
++};
++
++export default appConfig;
+ 
+-export default appConfig
+diff --git a/src/services/ApiService.ts b/src/services/ApiService.ts
+index 4794d82..e0641db 100644
+--- a/src/services/ApiService.ts
++++ b/src/services/ApiService.ts
+@@ -4,9 +4,18 @@ import type { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios'
+ const ApiService = {
+     fetchDataWithAxios<Response = unknown, Request = Record<string, unknown>>(
+         param: AxiosRequestConfig<Request>,
++        customBaseUrl?: string,
++        customHeaders?: Record<string, string>,
+     ) {
+         return new Promise<Response>((resolve, reject) => {
+-            AxiosBase(param)
++            AxiosBase({
++                ...param,
++                baseURL: customBaseUrl || param.baseURL,
++                headers: {
++                    ...param.headers,
++                    ...customHeaders,
++                },
++            })
+                 .then((response: AxiosResponse<Response>) => {
+                     resolve(response.data)
+                 })
+diff --git a/src/views/dashboards/Overview/Overview.tsx b/src/views/dashboards/Overview/Overview.tsx
+index f487cf4..4a2ac27 100644
+--- a/src/views/dashboards/Overview/Overview.tsx
++++ b/src/views/dashboards/Overview/Overview.tsx
+@@ -1,10 +1,11 @@
+ import Loading from '@/components/shared/Loading'
+-import Overview from './components/Overview'
++import OverviewStats from './components/Overview'
+ import CustomerDemographic from './components/CustomerDemographic'
+ import RecentOrder from './components/RecentOrder'
+ import SalesTarget from './components/SalesTarget'
+ import TopProduct from './components/TopProduct'
+ import RevenueByChannel from './components/RevenueByChannel'
++import IcafeReportsSection from './components/IcafeReportsSection'
+ import { apiGetEcommerceDashboard } from '@/services/DashboardService'
+ import useSWR from 'swr'
+ import type { GetEcommerceDashboardResponse } from './types'
+@@ -21,13 +22,17 @@ const SalesDashboard = () => {
+     )
+ 
+     return (
+-        <Loading loading={isLoading}>
+-            {data && (
+-                <div>
++        <div className="flex flex-col gap-6">
++            {/* ── iCafeCloud Live Reports ── */}
++            <IcafeReportsSection />
++
++            {/* ── Existing ecommerce dashboard ── */}
++            <Loading loading={isLoading}>
++                {data && (
+                     <div className="flex flex-col gap-4 max-w-full overflow-x-hidden">
+                         <div className="flex flex-col xl:flex-row gap-4">
+                             <div className="flex flex-col gap-4 flex-1 xl:col-span-3">
+-                                <Overview data={data.statisticData} />
++                                <OverviewStats data={data.statisticData} />
+                                 <CustomerDemographic
+                                     data={data.customerDemographic}
+                                 />
+@@ -40,12 +45,11 @@ const SalesDashboard = () => {
+                                 />
+                             </div>
+                         </div>
+-
+                         <RecentOrder data={data.recentOrders} />
+                     </div>
+-                </div>
+-            )}
+-        </Loading>
++                )}
++            </Loading>
++        </div>
+     )
+ }
+ 

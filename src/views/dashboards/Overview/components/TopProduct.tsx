@@ -1,64 +1,169 @@
-import Avatar from '@/components/ui/Avatar'
-import Button from '@/components/ui/Button'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Card from '@/components/ui/Card'
-import GrowShrinkValue from '@/components/shared/GrowShrinkValue'
 import classNames from '@/utils/classNames'
 import isLastChild from '@/utils/isLastChild'
-import { useNavigate } from 'react-router'
-import type { Product } from '../types'
+import { TbShoppingCart } from 'react-icons/tb'
+import { useCafeStore } from '@/store/cafeStore'
+import { apiGetTopProducts } from '@/services/ReportsService'
+import {
+    getBusinessDayRange,
+    getTodayBusinessDateStr,
+} from '../utils/periodUtils'
+import type { TopProductItem } from '../icafeTypes'
 
-type TopProductProps = {
-    data: Product[]
+const MAX_PRODUCTS = 10
+
+const ProductAvatar = ({ image, name }: { image?: string; name: string }) => {
+    const [failed, setFailed] = useState(false)
+
+    if (image && !failed) {
+        return (
+            <img
+                src={image}
+                alt={name}
+                className="w-[40px] h-[40px] rounded-full object-cover"
+                onError={() => setFailed(true)}
+            />
+        )
+    }
+
+    return (
+        <div className="flex items-center justify-center w-[40px] h-[40px] rounded-full bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-400">
+            <TbShoppingCart className="text-lg" />
+        </div>
+    )
 }
 
-const TopProduct = ({ data }: TopProductProps) => {
-    const navigate = useNavigate()
+const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
+    const cafes = useCafeStore((s) => s.cafes)
+    const [products, setProducts] = useState<TopProductItem[]>([])
+    const [loading, setLoading] = useState(false)
+    const prevSignal = useRef(refreshSignal)
+    const hasLoadedOnce = useRef(false)
 
-    const handleViewAll = () => {
-        navigate('/concepts/products/product-list')
-    }
+    const fetchTopProducts = useCallback(async () => {
+        const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+        if (validCafes.length === 0) {
+            setProducts([])
+            return
+        }
+
+        // Only show loading spinner on the very first load
+        if (!hasLoadedOnce.current) {
+            setLoading(true)
+        }
+        try {
+            const todayStr = getTodayBusinessDateStr()
+            const range = getBusinessDayRange(todayStr)
+
+            const results = await Promise.allSettled(
+                validCafes.map((c) =>
+                    apiGetTopProducts(c.id, {
+                        date_start: range.date_start,
+                        date_end: range.date_end,
+                        time_start: range.time_start,
+                        time_end: range.time_end,
+                    }),
+                ),
+            )
+
+            // Merge products across all cafes
+            const productMap = new Map<
+                string,
+                { total_sold: number; total_cash: number; image?: string }
+            >()
+            for (const result of results) {
+                if (result.status !== 'fulfilled') continue
+                for (const item of result.value) {
+                    const existing = productMap.get(item.product_name)
+                    if (existing) {
+                        existing.total_sold += item.total_sold
+                        existing.total_cash += item.total_cash
+                        if (!existing.image && item.image) {
+                            existing.image = item.image
+                        }
+                    } else {
+                        productMap.set(item.product_name, {
+                            total_sold: item.total_sold,
+                            total_cash: item.total_cash,
+                            image: item.image,
+                        })
+                    }
+                }
+            }
+
+            const merged = Array.from(productMap.entries())
+                .map(([product_name, data]) => ({ product_name, ...data }))
+                .sort((a, b) => b.total_sold - a.total_sold)
+                .slice(0, MAX_PRODUCTS)
+
+            setProducts(merged)
+            hasLoadedOnce.current = true
+        } catch {
+            // On error, keep existing products rather than clearing
+            if (!hasLoadedOnce.current) {
+                setProducts([])
+            }
+        } finally {
+            setLoading(false)
+        }
+    }, [cafes])
+
+    useEffect(() => {
+        fetchTopProducts()
+    }, [fetchTopProducts])
+
+    // Silent background refresh triggered by parent auto-refresh
+    useEffect(() => {
+        if (refreshSignal !== prevSignal.current) {
+            prevSignal.current = refreshSignal
+            fetchTopProducts()
+        }
+    }, [refreshSignal, fetchTopProducts])
 
     return (
         <Card>
             <div className="flex items-center justify-between">
-                <h4>Top product</h4>
-                <Button size="sm" onClick={handleViewAll}>
-                    View all
-                </Button>
+                <h4>Top Products Today</h4>
             </div>
             <div className="mt-5">
-                {data.map((product, index) => (
+                {loading && products.length === 0 && (
+                    <div className="text-center text-gray-400 py-4 text-sm">
+                        Loading…
+                    </div>
+                )}
+                {!loading && products.length === 0 && (
+                    <div className="text-center text-gray-400 py-4 text-sm">
+                        No product sales today.
+                    </div>
+                )}
+                {products.map((product, index) => (
                     <div
-                        key={product.id}
+                        key={product.product_name}
                         className={classNames(
-                            'flex items-center justify-between py-2 dark:border-gray-600',
-                            !isLastChild(data, index) && 'mb-2',
+                            'flex items-center justify-between py-2 dark:border-gray-600 transition-all duration-300 ease-in-out',
+                            !isLastChild(products, index) && 'mb-2',
                         )}
                     >
                         <div className="flex items-center gap-2">
-                            <Avatar
-                                className="bg-white"
-                                size={50}
-                                src={product.img}
-                                shape="round"
+                            <ProductAvatar
+                                image={product.image}
+                                name={product.product_name}
                             />
                             <div>
                                 <div className="heading-text font-bold">
-                                    {product.name}
+                                    {product.product_name}
                                 </div>
-                                <div>Sold: {product.sales}</div>
+                                <div className="text-xs text-gray-500 transition-all duration-300">
+                                    Sold: {product.total_sold}
+                                </div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <GrowShrinkValue
-                                className="rounded-lg py-0.5 px-2 font-bold"
-                                value={product.growShrink}
-                                positiveClass="bg-success-subtle"
-                                negativeClass="bg-error-subtle"
-                                suffix="%"
-                                positiveIcon="+"
-                                negativeIcon=""
-                            />
+                        <div className="font-semibold text-sm transition-all duration-300">
+                            ₱{product.total_cash.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })}
                         </div>
                     </div>
                 ))}

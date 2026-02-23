@@ -1,12 +1,19 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import Avatar from '@/components/ui/Avatar'
 import Tag from '@/components/ui/Tag'
 import Dropdown from '@/components/ui/Dropdown'
+import Button from '@/components/ui/Button'
+import Tooltip from '@/components/ui/Tooltip'
+import Notification from '@/components/ui/Notification'
+import toast from '@/components/ui/toast'
 import DataTable from '@/components/shared/DataTable'
+import CafeAccessDialog from './CafeAccessDialog'
 import { useRolePermissionsStore } from '../store/rolePermissionsStore'
+import { apiUpdateUserRole } from '@/services/RbacService'
+import { useSessionUser } from '@/store/authStore'
 import dayjs from 'dayjs'
 import cloneDeep from 'lodash/cloneDeep'
-import { TbChevronDown } from 'react-icons/tb'
+import { TbChevronDown, TbBuildingStore, TbLock } from 'react-icons/tb'
 import type {
     User,
     Users,
@@ -32,6 +39,15 @@ const statusColor: Record<string, string> = {
 const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
     const { userList, userListTotal, isLoading, roleList, mutate } = props
 
+    const currentUser = useSessionUser((state) => state.user)
+
+    // Count how many active admins exist in the current page data
+    // Used to disable the role dropdown for the last remaining admin
+    const adminCount = useMemo(
+        () => userList.filter((u) => u.role === 'admin').length,
+        [userList],
+    )
+
     const {
         tableData,
         selectedUser,
@@ -39,6 +55,20 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
         setSelectedUser,
         setSelectAllUser,
     } = useRolePermissionsStore()
+
+    // Cafe Access Dialog state
+    const [cafeDialogUser, setCafeDialogUser] = useState<User | null>(null)
+    const [cafeDialogOpen, setCafeDialogOpen] = useState(false)
+
+    const openCafeDialog = (user: User) => {
+        setCafeDialogUser(user)
+        setCafeDialogOpen(true)
+    }
+
+    const closeCafeDialog = () => {
+        setCafeDialogOpen(false)
+        setCafeDialogUser(null)
+    }
 
     const handleSetTableData = (data: TableQueries) => {
         setTableData(data)
@@ -79,19 +109,36 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
         }
     }
 
-    const handleRoleChange = (role: string, id: string) => {
+    const handleRoleChange = async (role: string, id: string, userName: string) => {
+        // Optimistic update — update local SWR cache immediately
         const newUserList = structuredClone(userList).map((user) => {
             if (user.id === id) {
                 user.role = role
             }
-
             return user
         })
+        mutate({ list: newUserList, total: userListTotal }, false)
 
-        mutate(
-            { list: newUserList, total: userListTotal - selectedUser.length },
-            false,
-        )
+        try {
+            await apiUpdateUserRole(id, role)
+            toast.push(
+                <Notification type="success" title="Role updated">
+                    {userName}&apos;s role changed to <strong>{role}</strong>
+                </Notification>,
+                { placement: 'top-end' },
+            )
+            // Re-fetch from server to confirm
+            mutate()
+        } catch {
+            // Roll back the optimistic update on failure
+            mutate({ list: userList, total: userListTotal }, false)
+            toast.push(
+                <Notification type="danger" title="Failed to update role">
+                    Could not change {userName}&apos;s role. Please try again.
+                </Notification>,
+                { placement: 'top-end' },
+            )
+        }
     }
 
     const columns: ColumnDef<User>[] = useMemo(
@@ -153,11 +200,19 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
                 size: 70,
                 cell: (props) => {
                     const row = props.row.original
-                    return (
-                        <Dropdown
-                            renderTitle={
+                    return (() => {
+                            // Disable the dropdown if this row is the only remaining admin
+                            // (prevents locking out all admins from the system)
+                            const isLastAdmin =
+                                row.role === 'admin' && adminCount <= 1
+
+                            const dropdownTitle = (
                                 <div
-                                    className="inline-flex items-center gap-2 py-2 px-4 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+                                    className={`inline-flex items-center gap-2 py-2 px-4 rounded-lg ${
+                                        isLastAdmin
+                                            ? 'opacity-50 cursor-not-allowed'
+                                            : 'hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer'
+                                    }`}
                                     role="button"
                                 >
                                     <span className="font-bold heading-text">
@@ -167,24 +222,72 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
                                             )?.name
                                         }
                                     </span>
-                                    <TbChevronDown />
+                                    {isLastAdmin ? (
+                                        <TbLock className="text-gray-400" />
+                                    ) : (
+                                        <TbChevronDown />
+                                    )}
                                 </div>
-                            }
-                        >
-                            {roleList
-                                .filter((role) => role.id !== row.role)
-                                .map((role) => (
-                                    <Dropdown.Item
-                                        key={role.id}
-                                        eventKey={role.id}
-                                        onClick={() =>
-                                            handleRoleChange(role.id, row.id)
-                                        }
+                            )
+
+                            if (isLastAdmin) {
+                                return (
+                                    <Tooltip
+                                        title="Cannot change role — this is the only admin account. Promote another user to admin first."
+                                        placement="top"
                                     >
-                                        {role.name}
-                                    </Dropdown.Item>
-                                ))}
-                        </Dropdown>
+                                        {dropdownTitle}
+                                    </Tooltip>
+                                )
+                            }
+
+                            return (
+                                <Dropdown renderTitle={dropdownTitle}>
+                                    {roleList
+                                        .filter((role) => role.id !== row.role)
+                                        .map((role) => (
+                                            <Dropdown.Item
+                                                key={role.id}
+                                                eventKey={role.id}
+                                                onClick={() =>
+                                                    handleRoleChange(
+                                                        role.id,
+                                                        row.id,
+                                                        row.name,
+                                                    )
+                                                }
+                                            >
+                                                {role.name}
+                                            </Dropdown.Item>
+                                        ))}
+                                </Dropdown>
+                            )
+                        })()
+                },
+            },
+            {
+                header: 'Cafe Access',
+                id: 'cafeAccess',
+                size: 130,
+                cell: (props) => {
+                    const row = props.row.original
+                    // Admins always have full access — no need to manage
+                    if (row.role === 'admin') {
+                        return (
+                            <span className="text-xs text-gray-400 italic">
+                                All cafes (admin)
+                            </span>
+                        )
+                    }
+                    return (
+                        <Button
+                            size="xs"
+                            variant="twoTone"
+                            icon={<TbBuildingStore />}
+                            onClick={() => openCafeDialog(row)}
+                        >
+                            Manage
+                        </Button>
                     )
                 },
             },
@@ -194,29 +297,38 @@ const RolesPermissionsUserTable = (props: RolesPermissionsUserTableProps) => {
     )
 
     return (
-        <DataTable
-            selectable
-            columns={columns}
-            data={userList}
-            noData={!isLoading && userList.length === 0}
-            skeletonAvatarColumns={[0]}
-            skeletonAvatarProps={{ width: 28, height: 28 }}
-            loading={isLoading}
-            pagingData={{
-                total: userListTotal,
-                pageIndex: tableData.pageIndex as number,
-                pageSize: tableData.pageSize as number,
-            }}
-            checkboxChecked={(row) =>
-                selectedUser.some((selected) => selected.id === row.id)
-            }
-            hoverable={false}
-            onPaginationChange={handlePaginationChange}
-            onSelectChange={handleSelectChange}
-            onSort={handleSort}
-            onCheckBoxChange={handleRowSelect}
-            onIndeterminateCheckBoxChange={handleAllRowSelect}
-        />
+        <>
+            <DataTable
+                selectable
+                columns={columns}
+                data={userList}
+                noData={!isLoading && userList.length === 0}
+                skeletonAvatarColumns={[0]}
+                skeletonAvatarProps={{ width: 28, height: 28 }}
+                loading={isLoading}
+                pagingData={{
+                    total: userListTotal,
+                    pageIndex: tableData.pageIndex as number,
+                    pageSize: tableData.pageSize as number,
+                }}
+                checkboxChecked={(row) =>
+                    selectedUser.some((selected) => selected.id === row.id)
+                }
+                hoverable={false}
+                onPaginationChange={handlePaginationChange}
+                onSelectChange={handleSelectChange}
+                onSort={handleSort}
+                onCheckBoxChange={handleRowSelect}
+                onIndeterminateCheckBoxChange={handleAllRowSelect}
+            />
+
+            <CafeAccessDialog
+                user={cafeDialogUser}
+                open={cafeDialogOpen}
+                onClose={closeCafeDialog}
+                onSaved={() => mutate()}
+            />
+        </>
     )
 }
 

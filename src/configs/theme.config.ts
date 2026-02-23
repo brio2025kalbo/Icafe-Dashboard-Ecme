@@ -20,7 +20,7 @@ export type ThemeConfig = {
 export const themeConfig: ThemeConfig = {
     themeSchema: '',
     direction: THEME_ENUM.DIR_LTR,
-    mode: THEME_ENUM.MODE_LIGHT,
+    mode: THEME_ENUM.MODE_DARK,
     panelExpand: false,
     controlSize: 'md',
     layout: {

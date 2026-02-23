@@ -3,13 +3,13 @@ import Card from '@/components/ui/Card'
 import Select from '@/components/ui/Select'
 import AbbreviateNumber from '@/components/shared/AbbreviateNumber'
 import classNames from '@/utils/classNames'
-import { options } from '../constants'
+import { ecommerceOptions } from '../constants'
 import {
     TbShoppingCart,
     TbBuildingStore,
     TbDeviceMobileMessage,
 } from 'react-icons/tb'
-import type { ChannelRevenue, Period } from '../types'
+import type { ChannelRevenue, EcommercePeriod } from '../types'
 import type { ReactNode } from 'react'
 
 type RevenueByChannelProps = {
@@ -64,7 +64,7 @@ const Bar = ({
 }
 
 const RevenueByChannel = ({ data }: RevenueByChannelProps) => {
-    const [selectedPeriod, setSelectedPeriod] = useState<Period>('thisMonth')
+    const [selectedPeriod, setSelectedPeriod] = useState<EcommercePeriod>('thisMonth')
 
     return (
         <Card>
@@ -74,10 +74,10 @@ const RevenueByChannel = ({ data }: RevenueByChannelProps) => {
                     className="w-[120px]"
                     size="sm"
                     placeholder="Select period"
-                    value={options.filter(
+                    value={ecommerceOptions.filter(
                         (option) => option.value === selectedPeriod,
                     )}
-                    options={options}
+                    options={ecommerceOptions}
                     isSearchable={false}
                     onChange={(option) => {
                         if (option?.value) {

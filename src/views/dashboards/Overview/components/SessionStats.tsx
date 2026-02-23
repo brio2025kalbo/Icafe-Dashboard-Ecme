@@ -1,0 +1,170 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
+import Card from '@/components/ui/Card'
+import classNames from '@/utils/classNames'
+import { TbUsers, TbClockHour4, TbDeviceDesktop } from 'react-icons/tb'
+import { useCafeStore } from '@/store/cafeStore'
+import { apiGetCustomerAnalysis } from '@/services/ReportsService'
+import { getTodayBusinessDateStr } from '../utils/periodUtils'
+import type { ReactNode } from 'react'
+import type { SessionData } from '../icafeTypes'
+
+const EMPTY_SESSION: SessionData = {
+    total_session: 0,
+    avg_duration: 0,
+    unique_guests_count: 0,
+}
+
+function formatDuration(minutes: number): string {
+    if (minutes < 60) return `${minutes}m`
+    const h = Math.floor(minutes / 60)
+    const m = minutes % 60
+    return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+
+const DisplayColumn = ({
+    icon,
+    label,
+    value,
+    iconClass,
+}: {
+    icon: ReactNode
+    label: string
+    value: string | number
+    iconClass: string
+}) => {
+    return (
+        <div className={classNames('flex flex-col items-center gap-5')}>
+            <div
+                className={classNames(
+                    'rounded-full flex items-center justify-center h-12 w-12 text-xl text-gray-900',
+                    iconClass,
+                )}
+            >
+                {icon}
+            </div>
+            <div className="text-center">
+                <h6 className="font-bold mb-1">{value}</h6>
+                <div className="text-center text-xs">{label}</div>
+            </div>
+        </div>
+    )
+}
+
+const SessionStats = ({
+    refreshSignal = 0,
+}: {
+    refreshSignal?: number
+}) => {
+    const cafes = useCafeStore((s) => s.cafes)
+    const [session, setSession] = useState<SessionData>(EMPTY_SESSION)
+    const [loading, setLoading] = useState(false)
+    const prevSignal = useRef(refreshSignal)
+    const hasLoadedOnce = useRef(false)
+
+    const fetchData = useCallback(async () => {
+        const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+        if (validCafes.length === 0) {
+            setSession(EMPTY_SESSION)
+            return
+        }
+
+        if (!hasLoadedOnce.current) {
+            setLoading(true)
+        }
+
+        try {
+            const todayStr = getTodayBusinessDateStr()
+            const results = await Promise.allSettled(
+                validCafes.map((c) =>
+                    apiGetCustomerAnalysis(c.id, {
+                        date_start: todayStr,
+                        date_end: todayStr,
+                    }),
+                ),
+            )
+
+            let totalSession = 0
+            let totalDuration = 0
+            let totalUniqueGuests = 0
+            let cafeCount = 0
+
+            for (const result of results) {
+                if (result.status !== 'fulfilled') continue
+                const d = result.value.data
+                if (!d?.session) continue
+
+                totalSession += d.session.total_session
+                totalDuration += d.session.avg_duration
+                totalUniqueGuests += d.session.unique_guests_count
+                cafeCount++
+            }
+
+            setSession({
+                total_session: totalSession,
+                avg_duration: cafeCount > 0 ? Math.round(totalDuration / cafeCount) : 0,
+                unique_guests_count: totalUniqueGuests,
+            })
+
+            hasLoadedOnce.current = true
+        } catch {
+            if (!hasLoadedOnce.current) {
+                setSession(EMPTY_SESSION)
+            }
+        } finally {
+            setLoading(false)
+        }
+    }, [cafes])
+
+    useEffect(() => {
+        fetchData()
+    }, [fetchData])
+
+    useEffect(() => {
+        if (refreshSignal !== prevSignal.current) {
+            prevSignal.current = refreshSignal
+            fetchData()
+        }
+    }, [refreshSignal, fetchData])
+
+    return (
+        <Card>
+            <div className="flex items-center justify-between mb-4">
+                <h4>Session Overview</h4>
+            </div>
+            {loading && !hasLoadedOnce.current && (
+                <div className="text-center text-gray-400 py-4 text-sm">
+                    Loading…
+                </div>
+            )}
+            {!loading && session.total_session === 0 && !hasLoadedOnce.current && (
+                <div className="text-center text-gray-400 py-4 text-sm">
+                    No session data available.
+                </div>
+            )}
+            <div className="bg-gray-100 dark:bg-gray-900 rounded-xl p-4 mt-8">
+                <div className="grid grid-cols-3">
+                    <DisplayColumn
+                        icon={<TbDeviceDesktop />}
+                        label="Total Sessions"
+                        value={session.total_session.toLocaleString()}
+                        iconClass="bg-sky-200 dark:opacity-70"
+                    />
+                    <DisplayColumn
+                        icon={<TbUsers />}
+                        label="Unique Guests"
+                        value={session.unique_guests_count.toLocaleString()}
+                        iconClass="bg-emerald-200 dark:opacity-70"
+                    />
+                    <DisplayColumn
+                        icon={<TbClockHour4 />}
+                        label="Avg Duration"
+                        value={formatDuration(session.avg_duration)}
+                        iconClass="bg-orange-200 dark:opacity-70"
+                    />
+                </div>
+            </div>
+        </Card>
+    )
+}
+
+export default SessionStats

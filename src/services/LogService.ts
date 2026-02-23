@@ -4,7 +4,7 @@ export async function apiGetLogs<T, U extends Record<string, unknown>>(
     params: U,
 ) {
     return ApiService.fetchDataWithAxios<T>({
-        url: '/api/logs',
+        url: '/logs',
         method: 'get',
         params,
     })

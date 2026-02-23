@@ -1,9 +1,12 @@
-export type Period = 'thisMonth' | 'thisWeek' | 'thisYear'
+export type Period = 'thisDay' | 'thisWeek' | 'thisMonth' | 'thisYear'
+
+/** Periods available in ecommerce mock data (excludes 'thisDay') */
+export type EcommercePeriod = 'thisWeek' | 'thisMonth' | 'thisYear'
 
 export type StatisticCategory = 'totalProfit' | 'totalOrder' | 'totalImpression'
 
 export type ChannelRevenue = Record<
-    Period,
+    EcommercePeriod,
     {
         value: number
         growShrink: number
@@ -16,7 +19,7 @@ export type ChannelRevenue = Record<
 >
 
 export type SalesTargetData = Record<
-    Period,
+    EcommercePeriod,
     {
         target: number
         achieved: number
@@ -55,7 +58,7 @@ export type PeriodData = {
 
 export type StatisticData = Record<
     StatisticCategory,
-    Record<Period, PeriodData>
+    Record<EcommercePeriod, PeriodData>
 >
 
 export type Order = {

@@ -252,7 +252,7 @@ const conceptsRoute: Routes = [
         component: lazy(
             () => import('@/views/concepts/accounts/RolesPermissions'),
         ),
-        authority: [ADMIN, USER],
+        authority: [ADMIN], // Admin only
         meta: {
             pageContainerType: 'contained',
             pageBackgroundType: 'plain',
