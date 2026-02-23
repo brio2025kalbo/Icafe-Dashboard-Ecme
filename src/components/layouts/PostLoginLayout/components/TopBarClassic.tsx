@@ -1,5 +1,6 @@
 import Header from '@/components/template/Header'
 import UserProfileDropdown from '@/components//template/UserProfileDropdown'
+import HeaderModeSwitcher from '@/components/template/HeaderModeSwitcher'
 import HeaderLogo from '@/components/template/HeaderLogo'
 import MobileNav from '@/components/template/MobileNav'
 import HorizontalNav from '@/components/template/HorizontalNav'
@@ -30,6 +31,7 @@ const TopBarClassic = ({ children }: CommonProps) => {
                         headerMiddle={<>{larger.lg && <HorizontalNav />}</>}
                         headerEnd={
                             <>
+                                <HeaderModeSwitcher />
                                 <UserProfileDropdown hoverable={false} />
                             </>
                         }
