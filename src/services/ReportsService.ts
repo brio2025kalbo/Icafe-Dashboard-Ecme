@@ -75,11 +75,13 @@ export async function apiGetReportData<T = unknown>(
 
 export async function apiGetCustomerAnalysis(
     cafeId: string,
+    params: { date_start: string; date_end: string },
 ): Promise<CustomerAnalysisResponse> {
     const cafe = getCafeById(cafeId)
     const response = await icafeAxios.get<CustomerAnalysisResponse>(
         `/cafe/${cafe.cafeId}/reports/customerAnalysis`,
         {
+            params,
             headers: { Authorization: `Bearer ${cafe.apiKey}` },
         },
     )

@@ -5,6 +5,7 @@ import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_7 } from '@/constants/chart.constant'
 import { useCafeStore } from '@/store/cafeStore'
 import { apiGetCustomerAnalysis } from '@/services/ReportsService'
+import { getTodayBusinessDateStr } from '../utils/periodUtils'
 import type { IncomeChartItem } from '../icafeTypes'
 
 type MemberRankingEntry = { member_account: string; spend_amount: number }
@@ -38,8 +39,14 @@ const RevenueBreakdown = ({
         }
 
         try {
+            const todayStr = getTodayBusinessDateStr()
             const results = await Promise.allSettled(
-                validCafes.map((c) => apiGetCustomerAnalysis(c.id)),
+                validCafes.map((c) =>
+                    apiGetCustomerAnalysis(c.id, {
+                        date_start: todayStr,
+                        date_end: todayStr,
+                    }),
+                ),
             )
 
             // Merge income_chart across cafes by name
