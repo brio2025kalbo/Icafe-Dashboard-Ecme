@@ -199,6 +199,7 @@ export type ReportDataParams = {
 
 export type GameItem = {
     name: string
+    pkg_id?: number
     local_times: number
     pool_times: number
 }
