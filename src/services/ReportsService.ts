@@ -11,6 +11,9 @@ import type {
     ShiftListParams,
     ShiftStats,
     ShiftBreakdownRow,
+    TopProductItem,
+    IcafeProduct,
+    IcafeProductsResponse,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -22,6 +25,17 @@ function getCafeById(cafeId: string) {
     const cafe = useCafeStore.getState().cafes.find((c) => c.id === cafeId)
     if (!cafe) throw new Error(`Cafe with id "${cafeId}" not found in store.`)
     return cafe
+}
+
+/** Decode common HTML entities returned by the iCafeCloud API */
+function decodeHtmlEntities(str: string): string {
+    return str
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#039;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&')
 }
 
 // ─── Report Chart ─────────────────────────────────────────────────────────────
@@ -307,4 +321,122 @@ export async function apiGetShiftStats(
             shift_count:     acc.shift_count     + 1,
         }
     }, empty)
+}
+
+// ─── Products Catalog ─────────────────────────────────────────────────────────
+
+export async function apiGetCafeProducts(
+    cafeId: string,
+): Promise<IcafeProduct[]> {
+    const cafe = getCafeById(cafeId)
+    const allProducts: IcafeProduct[] = []
+    let page = 1
+    let totalPages = 1
+
+    // Fetch all pages of the product catalog
+    do {
+        const response = await icafeAxios.get<IcafeProductsResponse>(
+            `/cafe/${cafe.cafeId}/products`,
+            {
+                params: { page },
+                headers: { Authorization: `Bearer ${cafe.apiKey}` },
+            },
+        )
+        const items = response.data?.data?.items
+        if (!items || items.length === 0) break
+        allProducts.push(...items)
+
+        const paging = response.data?.data?.paging_info
+        totalPages = paging?.pages ?? 1
+        page++
+    } while (page <= totalPages)
+
+    return allProducts
+}
+
+// ─── Top Products ─────────────────────────────────────────────────────────────
+
+export async function apiGetTopProducts(
+    cafeId: string,
+    params: ShiftListParams,
+): Promise<TopProductItem[]> {
+    let items: ShiftListResponse['data']
+
+    if (
+        params.date_start &&
+        params.date_end &&
+        params.date_start !== params.date_end
+    ) {
+        const resp = await apiGetShiftList(cafeId, {
+            ...params,
+            time_start: '00:00',
+            time_end:   '23:59',
+        })
+        items = resp.data ?? []
+    } else {
+        const bizDate = params.date_start
+        const parts   = bizDate.split('-').map(Number)
+        const d       = new Date(parts[0], parts[1] - 1, parts[2])
+        d.setDate(d.getDate() + 1)
+        const nextDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        items = await apiGetBusinessDayShiftList(cafeId, bizDate, nextDate)
+    }
+
+    if (!items || items.length === 0) return []
+
+    // Fetch shift details and product catalog in parallel
+    const [detailResults, catalogResult] = await Promise.all([
+        Promise.allSettled(
+            items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+        ),
+        apiGetCafeProducts(cafeId).catch(() => null),
+    ])
+
+    // Build a name→image lookup from the product catalog
+    const imageMap = new Map<string, string>()
+    if (catalogResult) {
+        for (const p of catalogResult) {
+            const name = decodeHtmlEntities(String(p.product_name ?? '')).trim().toLowerCase()
+            if (name && p.product_image) {
+                imageMap.set(name, decodeHtmlEntities(String(p.product_image)))
+            }
+        }
+    }
+
+    const productMap = new Map<string, { total_sold: number; total_cash: number; image?: string }>()
+
+    for (const result of detailResults) {
+        if (result.status !== 'fulfilled') continue
+        const d = result.value.data
+        if (!d) continue
+
+        const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
+        for (const item of shopSalesArr) {
+            // The API may return the product name under different keys
+            const rawItem = item as Record<string, unknown>
+            const name = String(
+                rawItem.product_name ?? rawItem.name ?? rawItem.product ?? '',
+            ).trim()
+            if (!name) {
+                if (Object.keys(rawItem).length > 0) {
+                    console.warn('[TopProducts] shop_sales item has no recognizable name field:', Object.keys(rawItem))
+                }
+                continue
+            }
+            const sold = parseFloat(String(rawItem.sold ?? rawItem.quantity ?? rawItem.qty ?? 0)) || 0
+            const cash = parseFloat(String(rawItem.cash ?? rawItem.amount ?? rawItem.total ?? 0)) || 0
+            const existing = productMap.get(name)
+            if (existing) {
+                existing.total_sold += sold
+                existing.total_cash += cash
+            } else {
+                const image = imageMap.get(name.toLowerCase())
+                productMap.set(name, { total_sold: sold, total_cash: cash, image })
+            }
+        }
+    }
+
+    return Array.from(productMap.entries())
+        .map(([product_name, data]) => ({ product_name, ...data }))
+        .sort((a, b) => b.total_sold - a.total_sold)
 }

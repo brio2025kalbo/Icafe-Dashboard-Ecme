@@ -123,6 +123,38 @@ export type ShiftBreakdownRow = {
 
 export type PeriodType = 'daily' | 'weekly' | 'monthly' | 'yearly'
 
+/** Aggregated top product computed from shop_sales across shifts */
+export type TopProductItem = {
+    product_name: string
+    total_sold: number
+    total_cash: number
+    image?: string
+}
+
+/** Product entry returned by the iCafeCloud products catalog API */
+export type IcafeProduct = {
+    product_id: number
+    product_name: string
+    product_image?: string
+    has_image: number
+    [key: string]: unknown
+}
+
+export type IcafeProductsPagingInfo = {
+    total_records: number
+    pages: number
+    page: number
+    page_next: number
+    [key: string]: unknown
+}
+
+export type IcafeProductsData = {
+    items: IcafeProduct[]
+    paging_info: IcafeProductsPagingInfo
+}
+
+export type IcafeProductsResponse = IcafeApiResponse<IcafeProductsData>
+
 // ─── Report Data Params ───────────────────────────────────────────────────────
 
 export type ReportDataParams = {

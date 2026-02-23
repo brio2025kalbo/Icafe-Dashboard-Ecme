@@ -771,6 +771,7 @@ const CACHE_TTL = {
     shiftDetail:  25 * 1000,
     shiftList:    20 * 1000,
     reportChart:  5  * 60 * 1000,
+    products:     10 * 60 * 1000,
     default:      15 * 1000,
 }
 const cache = new Map()
@@ -780,6 +781,7 @@ function getTtl(urlPath) {
     if (urlPath.includes('shiftDetail'))  return CACHE_TTL.shiftDetail
     if (urlPath.includes('shiftList'))    return CACHE_TTL.shiftList
     if (urlPath.includes('reportChart'))  return CACHE_TTL.reportChart
+    if (urlPath.includes('/products'))    return CACHE_TTL.products
     return CACHE_TTL.default
 }
 
