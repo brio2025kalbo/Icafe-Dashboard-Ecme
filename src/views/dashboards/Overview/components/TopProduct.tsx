@@ -39,6 +39,7 @@ const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
     const [products, setProducts] = useState<TopProductItem[]>([])
     const [loading, setLoading] = useState(false)
     const prevSignal = useRef(refreshSignal)
+    const hasLoadedOnce = useRef(false)
 
     const fetchTopProducts = useCallback(async () => {
         const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
@@ -47,7 +48,10 @@ const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
             return
         }
 
-        setLoading(true)
+        // Only show loading spinner on the very first load
+        if (!hasLoadedOnce.current) {
+            setLoading(true)
+        }
         try {
             const todayStr = getTodayBusinessDateStr()
             const range = getBusinessDayRange(todayStr)
@@ -94,8 +98,12 @@ const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
                 .slice(0, MAX_PRODUCTS)
 
             setProducts(merged)
+            hasLoadedOnce.current = true
         } catch {
-            setProducts([])
+            // On error, keep existing products rather than clearing
+            if (!hasLoadedOnce.current) {
+                setProducts([])
+            }
         } finally {
             setLoading(false)
         }
@@ -119,7 +127,7 @@ const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
                 <h4>Top Products Today</h4>
             </div>
             <div className="mt-5">
-                {loading && (
+                {loading && products.length === 0 && (
                     <div className="text-center text-gray-400 py-4 text-sm">
                         Loading…
                     </div>
@@ -129,37 +137,36 @@ const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
                         No product sales today.
                     </div>
                 )}
-                {!loading &&
-                    products.map((product, index) => (
-                        <div
-                            key={product.product_name}
-                            className={classNames(
-                                'flex items-center justify-between py-2 dark:border-gray-600',
-                                !isLastChild(products, index) && 'mb-2',
-                            )}
-                        >
-                            <div className="flex items-center gap-2">
-                                <ProductAvatar
-                                    image={product.image}
-                                    name={product.product_name}
-                                />
-                                <div>
-                                    <div className="heading-text font-bold">
-                                        {product.product_name}
-                                    </div>
-                                    <div className="text-xs text-gray-500">
-                                        Sold: {product.total_sold}
-                                    </div>
+                {products.map((product, index) => (
+                    <div
+                        key={product.product_name}
+                        className={classNames(
+                            'flex items-center justify-between py-2 dark:border-gray-600 transition-all duration-300 ease-in-out',
+                            !isLastChild(products, index) && 'mb-2',
+                        )}
+                    >
+                        <div className="flex items-center gap-2">
+                            <ProductAvatar
+                                image={product.image}
+                                name={product.product_name}
+                            />
+                            <div>
+                                <div className="heading-text font-bold">
+                                    {product.product_name}
+                                </div>
+                                <div className="text-xs text-gray-500 transition-all duration-300">
+                                    Sold: {product.total_sold}
                                 </div>
                             </div>
-                            <div className="font-semibold text-sm">
-                                ₱{product.total_cash.toLocaleString(undefined, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                })}
-                            </div>
                         </div>
-                    ))}
+                        <div className="font-semibold text-sm transition-all duration-300">
+                            ₱{product.total_cash.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })}
+                        </div>
+                    </div>
+                ))}
             </div>
         </Card>
     )
