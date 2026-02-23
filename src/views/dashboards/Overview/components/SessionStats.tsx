@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Card from '@/components/ui/Card'
 import classNames from '@/utils/classNames'
 import { TbUsers, TbClockHour4, TbDeviceDesktop } from 'react-icons/tb'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import { apiGetCustomerAnalysis } from '@/services/ReportsService'
 import { getTodayBusinessDateStr } from '../utils/periodUtils'
 import type { ReactNode } from 'react'
@@ -56,13 +56,17 @@ const SessionStats = ({
     refreshSignal?: number
 }) => {
     const cafes = useCafeStore((s) => s.cafes)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
     const [session, setSession] = useState<SessionData>(EMPTY_SESSION)
     const [loading, setLoading] = useState(false)
     const prevSignal = useRef(refreshSignal)
     const hasLoadedOnce = useRef(false)
 
     const fetchData = useCallback(async () => {
-        const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+        const allValid = cafes.filter((c) => c.cafeId && c.apiKey)
+        const validCafes = filterCafeId === ALL_CAFES_VALUE
+            ? allValid
+            : allValid.filter((c) => c.id === filterCafeId)
         if (validCafes.length === 0) {
             setSession(EMPTY_SESSION)
             return
@@ -113,7 +117,7 @@ const SessionStats = ({
         } finally {
             setLoading(false)
         }
-    }, [cafes])
+    }, [cafes, filterCafeId])
 
     useEffect(() => {
         fetchData()

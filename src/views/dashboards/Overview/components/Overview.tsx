@@ -5,7 +5,7 @@ import GrowShrinkValue from '@/components/shared/GrowShrinkValue'
 import AbbreviateNumber from '@/components/shared/AbbreviateNumber'
 import Chart from '@/components/shared/Chart'
 import { useThemeStore } from '@/store/themeStore'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_2, COLOR_4 } from '@/constants/chart.constant'
 import { options } from '../constants'
@@ -157,6 +157,8 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
     }, [selectedPeriod])
 
     const cafes = useCafeStore((s) => s.cafes)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
+    const setFilterCafeId = useCafeStore((s) => s.setFilterCafeId)
     const [localStats, setLocalStats] = useState<ShiftStats>(EMPTY_STATS)
     const [loading, setLoading] = useState(false)
 
@@ -177,7 +179,24 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
         }
     }, [sideNavCollapse])
 
-    const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+    const allValidCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+
+    const validCafes = filterCafeId === ALL_CAFES_VALUE
+        ? allValidCafes
+        : allValidCafes.filter((c) => c.id === filterCafeId)
+
+    const filterOptions = [
+        { value: ALL_CAFES_VALUE, label: 'All Cafes' },
+        ...allValidCafes.map((c) => ({ value: c.id, label: c.name })),
+    ]
+    const selectedFilterOption = filterOptions.find((o) => o.value === filterCafeId) ?? filterOptions[0]
+
+    // Reset filter when selected cafe is no longer valid
+    useEffect(() => {
+        if (filterCafeId !== ALL_CAFES_VALUE && !allValidCafes.some((c) => c.id === filterCafeId)) {
+            setFilterCafeId(ALL_CAFES_VALUE)
+        }
+    }, [allValidCafes, filterCafeId, setFilterCafeId])
 
     const fetchStats = useCallback(async () => {
         if (validCafes.length === 0) {
@@ -219,7 +238,7 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
         setLocalStats(totals)
         setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cafes, selectedPeriod, selectedDate, refreshSignal])
+    }, [cafes, selectedPeriod, selectedDate, refreshSignal, filterCafeId])
 
     useEffect(() => { fetchStats() }, [fetchStats])
 
@@ -233,21 +252,36 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
         <Card>
             <div className="flex items-center justify-between">
                 <h4>Overview</h4>
-                <Select
-                    className="w-[120px]"
-                    size="sm"
-                    placeholder="Select period"
-                    value={options.filter(
-                        (option) => option.value === selectedPeriod,
-                    )}
-                    options={options}
-                    isSearchable={false}
-                    onChange={(option) => {
-                        if (option?.value) {
-                            setSelectedPeriod(option?.value)
-                        }
-                    }}
-                />
+                <div className="flex items-center gap-2">
+                    <Select
+                        className="min-w-[160px]"
+                        size="sm"
+                        placeholder="Filter cafe"
+                        value={selectedFilterOption}
+                        options={filterOptions}
+                        isSearchable={false}
+                        onChange={(option) => {
+                            if (option?.value) {
+                                setFilterCafeId(option.value)
+                            }
+                        }}
+                    />
+                    <Select
+                        className="w-[120px]"
+                        size="sm"
+                        placeholder="Select period"
+                        value={options.filter(
+                            (option) => option.value === selectedPeriod,
+                        )}
+                        options={options}
+                        isSearchable={false}
+                        onChange={(option) => {
+                            if (option?.value) {
+                                setSelectedPeriod(option?.value)
+                            }
+                        }}
+                    />
+                </div>
             </div>
             {selectedPeriod === 'thisDay' && (
                 <div className="flex items-center gap-2 mt-3">

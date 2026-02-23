@@ -21,7 +21,7 @@ import {
     getTodayBusinessDateStr,
     PERIOD_OPTIONS,
 } from '../utils/periodUtils'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import type { PeriodType, ShiftStats } from '../icafeTypes'
 import classNames from 'classnames'
 
@@ -49,17 +49,16 @@ function addDaysToStr(dateStr: string, n: number): string {
 
 type Props = { refreshSignal?: number }
 
-const ALL_CAFES_VALUE = '__all__'
-
 const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
     const cafes = useCafeStore((s) => s.cafes)
     const setCombinedStats = useCafeStore((s) => s.setCombinedStats)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
+    const setFilterCafeId = useCafeStore((s) => s.setFilterCafeId)
     const [period, setPeriod] = useState<PeriodType>('daily')
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [combined, setCombined] = useState<ShiftStats>(EMPTY_STATS)
     const [loading, setLoading] = useState(false)
     const [errors, setErrors] = useState<string[]>([])
-    const [filterCafeId, setFilterCafeId] = useState<string>(ALL_CAFES_VALUE)
 
     // lastDataAt only advances when at least one cafe returns good data
     const [lastDataAt, setLastDataAt] = useState<Date | null>(null)
