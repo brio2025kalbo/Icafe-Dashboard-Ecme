@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Card from '@/components/ui/Card'
 import classNames from '@/utils/classNames'
 import isLastChild from '@/utils/isLastChild'
@@ -13,10 +13,11 @@ import type { TopProductItem } from '../icafeTypes'
 
 const MAX_PRODUCTS = 10
 
-const TopProduct = () => {
+const TopProduct = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
     const cafes = useCafeStore((s) => s.cafes)
     const [products, setProducts] = useState<TopProductItem[]>([])
     const [loading, setLoading] = useState(false)
+    const prevSignal = useRef(refreshSignal)
 
     const fetchTopProducts = useCallback(async () => {
         const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
@@ -78,6 +79,14 @@ const TopProduct = () => {
     useEffect(() => {
         fetchTopProducts()
     }, [fetchTopProducts])
+
+    // Silent background refresh triggered by parent auto-refresh
+    useEffect(() => {
+        if (refreshSignal !== prevSignal.current) {
+            prevSignal.current = refreshSignal
+            fetchTopProducts()
+        }
+    }, [refreshSignal, fetchTopProducts])
 
     return (
         <Card>
