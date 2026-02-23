@@ -14,6 +14,7 @@ import type {
     TopProductItem,
     IcafeProduct,
     IcafeProductsResponse,
+    CustomerAnalysisResponse,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -62,6 +63,23 @@ export async function apiGetReportData<T = unknown>(
     const cafe = getCafeById(cafeId)
     const response = await icafeAxios.get<IcafeApiResponse<T>>(
         `/cafe/${cafe.cafeId}/reports/reportData`,
+        {
+            params,
+            headers: { Authorization: `Bearer ${cafe.apiKey}` },
+        },
+    )
+    return response.data
+}
+
+// ─── Customer Analysis ────────────────────────────────────────────────────────
+
+export async function apiGetCustomerAnalysis(
+    cafeId: string,
+    params: { date_start: string; date_end: string },
+): Promise<CustomerAnalysisResponse> {
+    const cafe = getCafeById(cafeId)
+    const response = await icafeAxios.get<CustomerAnalysisResponse>(
+        `/cafe/${cafe.cafeId}/reports/customerAnalysis`,
         {
             params,
             headers: { Authorization: `Bearer ${cafe.apiKey}` },

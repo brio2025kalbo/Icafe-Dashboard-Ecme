@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import Loading from '@/components/shared/Loading'
 import OverviewStats from './components/Overview'
-import CustomerDemographic from './components/CustomerDemographic'
+import RevenueBreakdown from './components/RevenueBreakdown'
 import RecentOrder from './components/RecentOrder'
 import SalesTarget from './components/SalesTarget'
 import TopProduct from './components/TopProduct'
@@ -48,9 +48,7 @@ const SalesDashboard = () => {
                         <div className="flex flex-col xl:flex-row gap-4">
                             <div className="flex flex-col gap-4 flex-1 xl:col-span-3">
                                 <OverviewStats data={data.statisticData} refreshSignal={overviewRefreshKey} />
-                                <CustomerDemographic
-                                    data={data.customerDemographic}
-                                />
+                                <RevenueBreakdown refreshSignal={overviewRefreshKey} />
                             </div>
                             <div className="flex flex-col gap-4 2xl:min-w-[360px]">
                                 <SalesTarget data={data.salesTarget} />
