@@ -5,7 +5,7 @@ import RevenueBreakdown from './components/RevenueBreakdown'
 import RecentOrder from './components/RecentOrder'
 import SalesTarget from './components/SalesTarget'
 import TopProduct from './components/TopProduct'
-import RevenueByChannel from './components/RevenueByChannel'
+import SessionStats from './components/SessionStats'
 import IcafeReportsSection from './components/IcafeReportsSection'
 import IcafeShiftSection from './components/IcafeShiftSection'
 import { apiGetEcommerceDashboard } from '@/services/DashboardService'
@@ -53,8 +53,8 @@ const SalesDashboard = () => {
                             <div className="flex flex-col gap-4 2xl:min-w-[360px]">
                                 <SalesTarget data={data.salesTarget} />
                                 <TopProduct refreshSignal={overviewRefreshKey} />
-                                <RevenueByChannel
-                                    data={data.revenueByChannel}
+                                <SessionStats
+                                    refreshSignal={overviewRefreshKey}
                                 />
                             </div>
                         </div>

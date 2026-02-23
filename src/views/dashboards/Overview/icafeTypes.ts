@@ -167,9 +167,16 @@ export type MemberSpendRankingItem = {
     member_account: string
 }
 
+export type SessionData = {
+    total_session: number
+    avg_duration: number
+    unique_guests_count: number
+}
+
 export type CustomerAnalysisData = {
     income_chart: IncomeChartItem[]
     member_spend_ranking: MemberSpendRankingItem[]
+    session?: SessionData
     [key: string]: unknown
 }
 
