@@ -5,6 +5,7 @@ import RevenueBreakdown from './components/RevenueBreakdown'
 import RecentOrder from './components/RecentOrder'
 import TopGames from './components/TopGames'
 import TopProduct from './components/TopProduct'
+import TopPcs from './components/TopPcs'
 import SessionStats from './components/SessionStats'
 import IcafeReportsSection from './components/IcafeReportsSection'
 import IcafeShiftSection from './components/IcafeShiftSection'
@@ -49,6 +50,7 @@ const SalesDashboard = () => {
                             </div>
                             <div className="flex flex-col gap-4 2xl:min-w-[360px]">
                                 <TopGames refreshSignal={overviewRefreshKey} />
+                                <TopPcs refreshSignal={overviewRefreshKey} />
                                 <TopProduct refreshSignal={overviewRefreshKey} />
                                 <SessionStats
                                     refreshSignal={overviewRefreshKey}
