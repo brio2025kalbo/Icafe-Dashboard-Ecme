@@ -207,3 +207,19 @@ export type ReportDataWithGames = {
     game?: GameItem[]
     [key: string]: unknown
 }
+
+// ─── Games Catalog Types ──────────────────────────────────────────────────────
+
+/** Game entry returned by the iCafeCloud games catalog API */
+export type IcafeGame = {
+    game_id: number
+    game_name: string
+    [key: string]: unknown
+}
+
+export type IcafeGamesData = {
+    items: IcafeGame[]
+    paging_info?: IcafeProductsPagingInfo
+}
+
+export type IcafeGamesResponse = IcafeApiResponse<IcafeGamesData>

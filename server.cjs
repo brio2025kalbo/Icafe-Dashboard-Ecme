@@ -793,7 +793,7 @@ function decompressBuffer(buf, encoding) {
     })
 }
 
-function fetchUpstream(targetUrl, headers) {
+function fetchUpstream(targetUrl, headers, accept = 'application/json') {
     return new Promise((resolve, reject) => {
         const parsed = new URL(targetUrl)
         const mod = parsed.protocol === 'https:' ? https : http
@@ -804,7 +804,7 @@ function fetchUpstream(targetUrl, headers) {
             method:   'GET',
             headers:  {
                 'Authorization': headers['authorization'] || '',
-                'Accept':        'application/json',
+                'Accept':        accept,
                 'User-Agent':    'iCafeDashboard/1.0',
             },
         }
@@ -828,13 +828,15 @@ app.use('/icafe-api', async (req, res) => {
     const targetUrl = 'https://api.icafecloud.com/api/v2' + upstreamPath
     const cacheKey = upstreamPath
     const now = Date.now()
+    const isPoster = /\/games\/\d+\/poster/.test(upstreamPath)
+    const contentType = isPoster ? 'image/png' : 'application/json'
 
     const cached = cache.get(cacheKey)
     if (cached && cached.expiresAt > now) {
         const ttlLeft = Math.round((cached.expiresAt - now) / 1000)
         console.log(`[PROXY] CACHE HIT  ${upstreamPath} (expires in ${ttlLeft}s)`)
         res.status(cached.statusCode)
-        res.set('Content-Type', 'application/json')
+        res.set('Content-Type', cached.contentType || contentType)
         res.set('X-Cache', 'HIT')
         return res.send(cached.body)
     }
@@ -844,7 +846,7 @@ app.use('/icafe-api', async (req, res) => {
         try {
             const result = await inFlight.get(cacheKey)
             res.status(result.statusCode)
-            res.set('Content-Type', 'application/json')
+            res.set('Content-Type', result.headers?.['content-type'] || contentType)
             res.set('X-Cache', 'DEDUP')
             return res.send(result.body)
         } catch (err) {
@@ -854,23 +856,26 @@ app.use('/icafe-api', async (req, res) => {
     }
 
     console.log(`[PROXY] MISS       ${upstreamPath} → fetching upstream`)
-    const fetchPromise = fetchUpstream(targetUrl, req.headers)
+    const accept = isPoster ? 'image/*' : 'application/json'
+    const fetchPromise = fetchUpstream(targetUrl, req.headers, accept)
     inFlight.set(cacheKey, fetchPromise)
 
     try {
         const result = await fetchPromise
         inFlight.delete(cacheKey)
 
+        const upstreamContentType = result.headers?.['content-type'] || contentType
+
         if (result.statusCode === 200) {
             const ttl = getTtl(upstreamPath)
-            cache.set(cacheKey, { body: result.body, statusCode: result.statusCode, expiresAt: now + ttl })
+            cache.set(cacheKey, { body: result.body, statusCode: result.statusCode, contentType: upstreamContentType, expiresAt: now + ttl })
             console.log(`[PROXY] CACHED     ${upstreamPath} (TTL ${ttl/1000}s, status ${result.statusCode})`)
         } else {
             console.warn(`[PROXY] UPSTREAM   ${upstreamPath} — status ${result.statusCode} (not cached)`)
         }
 
         res.status(result.statusCode)
-        res.set('Content-Type', 'application/json')
+        res.set('Content-Type', upstreamContentType)
         res.set('X-Cache', 'MISS')
         return res.send(result.body)
 
