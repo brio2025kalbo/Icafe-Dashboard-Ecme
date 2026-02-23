@@ -48,13 +48,12 @@ const TopPcs = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
                 const pcList = result.value.data?.top_five_pc_spend
                 if (!Array.isArray(pcList)) continue
                 for (const item of pcList) {
+                    const spend = Number(item.spend) || 0
                     const existing = pcMap.get(item.pc_name)
                     if (existing) {
-                        existing.spend += item.spend
+                        existing.spend += spend
                     } else {
-                        pcMap.set(item.pc_name, {
-                            spend: item.spend,
-                        })
+                        pcMap.set(item.pc_name, { spend })
                     }
                 }
             }
@@ -121,7 +120,7 @@ const TopPcs = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
                             </div>
                         </div>
                         <div className="font-semibold text-sm transition-all duration-300">
-                            ₱{pc.spend.toLocaleString(undefined, {
+                            ₱{(pc.spend ?? 0).toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                             })}
