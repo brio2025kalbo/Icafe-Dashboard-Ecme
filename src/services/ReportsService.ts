@@ -384,10 +384,19 @@ export async function apiGetTopProducts(
 
         const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
         for (const item of shopSalesArr) {
-            const name = String(item.product_name ?? '').trim()
-            if (!name) continue
-            const sold = parseFloat(String(item.sold ?? 0)) || 0
-            const cash = parseFloat(String(item.cash ?? 0)) || 0
+            // The API may return the product name under different keys
+            const rawItem = item as Record<string, unknown>
+            const name = String(
+                rawItem.product_name ?? rawItem.name ?? rawItem.product ?? '',
+            ).trim()
+            if (!name) {
+                if (Object.keys(rawItem).length > 0) {
+                    console.warn('[TopProducts] shop_sales item has no recognizable name field:', Object.keys(rawItem))
+                }
+                continue
+            }
+            const sold = parseFloat(String(rawItem.sold ?? rawItem.quantity ?? rawItem.qty ?? 0)) || 0
+            const cash = parseFloat(String(rawItem.cash ?? rawItem.amount ?? rawItem.total ?? 0)) || 0
             const existing = productMap.get(name)
             if (existing) {
                 existing.total_sold += sold
