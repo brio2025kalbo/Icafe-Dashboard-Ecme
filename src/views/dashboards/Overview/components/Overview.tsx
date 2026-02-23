@@ -9,8 +9,7 @@ import { useCafeStore } from '@/store/cafeStore'
 import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_2, COLOR_4 } from '@/constants/chart.constant'
 import { options } from '../constants'
-import { NumericFormat } from 'react-number-format'
-import { TbCoin, TbShoppingBagCheck, TbEye, TbReceiptRefund, TbBuildingStore, TbArrowUpCircle, TbShoppingCart } from 'react-icons/tb'
+import { TbCoin, TbShoppingBagCheck, TbEye, TbReceiptRefund, TbBuildingStore, TbArrowUpCircle, TbShoppingCart, TbChevronLeft, TbChevronRight } from 'react-icons/tb'
 import { apiGetShiftStats } from '@/services/ReportsService'
 import {
     getDateRange,
@@ -19,7 +18,35 @@ import {
 } from '../utils/periodUtils'
 import type { ReactNode } from 'react'
 import type { StatisticData, Period, EcommercePeriod, StatisticCategory } from '../types'
+import useCountUp from '@/hooks/useCountUp'
 import type { PeriodType, ShiftStats } from '../icafeTypes'
+
+function addDaysToStr(dateStr: string, n: number): string {
+    const parts = dateStr.split('-').map(Number)
+    const d = new Date(parts[0], parts[1] - 1, parts[2])
+    d.setDate(d.getDate() + n)
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+}
+
+function formatCurrency(val: number): string {
+    return val.toLocaleString('en-PH', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })
+}
+
+type AnimatedCurrencyProps = {
+    value: number
+    prefix?: string
+}
+
+const AnimatedCurrency = ({ value, prefix = '' }: AnimatedCurrencyProps) => {
+    const animated = useCountUp(value)
+    return <>{prefix}{formatCurrency(animated)}</>
+}
 
 type StatisticCardProps = {
     title: string
@@ -121,6 +148,13 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
         useState<StatisticCategory>('totalProfit')
 
     const [selectedPeriod, setSelectedPeriod] = useState<Period>('thisDay')
+    const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
+
+    useEffect(() => {
+        if (selectedPeriod === 'thisDay') {
+            setSelectedDate(getTodayBusinessDateStr())
+        }
+    }, [selectedPeriod])
 
     const cafes = useCafeStore((s) => s.cafes)
     const [localStats, setLocalStats] = useState<ShiftStats>(EMPTY_STATS)
@@ -155,7 +189,7 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
 
         const pt = periodToPeriodType[selectedPeriod]
         const range = pt === 'daily'
-            ? getBusinessDayRange(getTodayBusinessDateStr())
+            ? getBusinessDayRange(selectedDate)
             : getDateRange(pt)
 
         const results = await Promise.allSettled(
@@ -185,12 +219,15 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
         setLocalStats(totals)
         setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cafes, selectedPeriod, refreshSignal])
+    }, [cafes, selectedPeriod, selectedDate, refreshSignal])
 
     useEffect(() => { fetchStats() }, [fetchStats])
 
     /** Safe ecommerce period for chart/growShrink data */
     const ecomPeriod = toEcommercePeriod(selectedPeriod)
+
+    const todayStr = getTodayBusinessDateStr()
+    const isToday = selectedDate === todayStr
 
     return (
         <Card>
@@ -212,18 +249,46 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                     }}
                 />
             </div>
+            {selectedPeriod === 'thisDay' && (
+                <div className="flex items-center gap-2 mt-3">
+                    <button
+                        onClick={() => setSelectedDate(addDaysToStr(selectedDate, -1))}
+                        className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                        title="Previous business day"
+                    >
+                        <TbChevronLeft className="text-lg" />
+                    </button>
+                    <input
+                        type="date"
+                        value={selectedDate}
+                        max={todayStr}
+                        aria-label="Select business date"
+                        onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                        className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                    />
+                    <button
+                        onClick={() => setSelectedDate(addDaysToStr(selectedDate, 1))}
+                        disabled={isToday}
+                        className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Next business day"
+                    >
+                        <TbChevronRight className="text-lg" />
+                    </button>
+                    {!isToday && (
+                        <button
+                            onClick={() => setSelectedDate(todayStr)}
+                            className="text-xs text-blue-500 hover:underline"
+                        >
+                            Today
+                        </button>
+                    )}
+                </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
                 <StatisticCard
                     title="Total profit"
                     value={
-                        <NumericFormat
-                            displayType="text"
-                            value={localStats.total_profit}
-                            prefix={'\u20B1'}
-                            thousandSeparator={true}
-                            decimalScale={2}
-                            fixedDecimalScale={true}
-                        />
+                        <AnimatedCurrency value={localStats.total_profit} prefix={'\u20B1'} />
                     }
                     growShrink={data.totalProfit[ecomPeriod].growShrink}
                     iconClass="bg-emerald-100 text-emerald-600"
@@ -236,14 +301,7 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                 <StatisticCard
                     title="Top-ups"
                     value={
-                        <NumericFormat
-                            displayType="text"
-                            value={localStats.top_ups}
-                            prefix={'\u20B1'}
-                            thousandSeparator={true}
-                            decimalScale={2}
-                            fixedDecimalScale={true}
-                        />
+                        <AnimatedCurrency value={localStats.top_ups} prefix={'\u20B1'} />
                     }
                     growShrink={data.totalOrder[ecomPeriod].growShrink}
                     iconClass="bg-blue-100 text-blue-600"
@@ -256,14 +314,7 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                 <StatisticCard
                     title="Shop Sales"
                     value={
-                        <NumericFormat
-                            displayType="text"
-                            value={localStats.shop_sales}
-                            prefix={'\u20B1'}
-                            thousandSeparator={true}
-                            decimalScale={2}
-                            fixedDecimalScale={true}
-                        />
+                        <AnimatedCurrency value={localStats.shop_sales} prefix={'\u20B1'} />
                     }
                     growShrink={data.totalOrder[ecomPeriod].growShrink}
                     iconClass="bg-violet-100 text-violet-600"
@@ -276,14 +327,7 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                 <StatisticCard
                     title="Refunds"
                     value={
-                        <NumericFormat
-                            displayType="text"
-                            value={localStats.refunds}
-                            prefix={'\u20B1'}
-                            thousandSeparator={true}
-                            decimalScale={2}
-                            fixedDecimalScale={true}
-                        />
+                        <AnimatedCurrency value={localStats.refunds} prefix={'\u20B1'} />
                     }
                     growShrink={data.totalProfit[ecomPeriod].growShrink}
                     iconClass="bg-red-100 text-red-500"
@@ -296,14 +340,7 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                 <StatisticCard
                     title="Center Expenses"
                     value={
-                        <NumericFormat
-                            displayType="text"
-                            value={localStats.center_expenses}
-                            prefix={'\u20B1'}
-                            thousandSeparator={true}
-                            decimalScale={2}
-                            fixedDecimalScale={true}
-                        />
+                        <AnimatedCurrency value={localStats.center_expenses} prefix={'\u20B1'} />
                     }
                     growShrink={data.totalProfit[ecomPeriod].growShrink}
                     iconClass="bg-orange-100 text-orange-600"
