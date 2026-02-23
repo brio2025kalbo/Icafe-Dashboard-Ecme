@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Tabs, Notification, toast } from '@/components/ui'
 import Select from '@/components/ui/Select'
+import DatePicker from '@/components/ui/DatePicker'
 import {
     TbCurrencyDollar,
     TbArrowUpCircle,
@@ -41,6 +42,18 @@ function addDaysToStr(dateStr: string, n: number): string {
     const parts = dateStr.split('-').map(Number)
     const d = new Date(parts[0], parts[1] - 1, parts[2])
     d.setDate(d.getDate() + n)
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+}
+
+function parseLocalDate(dateStr: string): Date {
+    const parts = dateStr.split('-').map(Number)
+    return new Date(parts[0], parts[1] - 1, parts[2])
+}
+
+function toDateStr(d: Date): string {
     const y = d.getFullYear()
     const m = String(d.getMonth() + 1).padStart(2, '0')
     const day = String(d.getDate()).padStart(2, '0')
@@ -271,12 +284,15 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                     >
                         <TbChevronLeft className="text-lg" />
                     </button>
-                    <input
-                        type="date"
-                        value={selectedDate}
-                        max={todayStr}
-                        onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-                        className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                    <DatePicker
+                        size="sm"
+                        value={parseLocalDate(selectedDate)}
+                        maxDate={parseLocalDate(todayStr)}
+                        inputFormat="YYYY-MM-DD"
+                        clearable={false}
+                        onChange={(date) => {
+                            if (date) setSelectedDate(toDateStr(date))
+                        }}
                     />
                     <button
                         onClick={() => setSelectedDate(addDaysToStr(selectedDate, 1))}
