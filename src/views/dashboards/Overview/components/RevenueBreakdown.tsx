@@ -54,9 +54,9 @@ const RevenueBreakdown = ({
 
                 for (const item of d.income_chart ?? []) {
                     const name = item.name
-                        .replace(/&amp;/g, '&')
                         .replace(/&lt;/g, '<')
                         .replace(/&gt;/g, '>')
+                        .replace(/&amp;/g, '&')
                     const existing = incomeMap.get(name) ?? 0
                     incomeMap.set(name, existing + item.value)
                 }
