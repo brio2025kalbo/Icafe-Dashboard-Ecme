@@ -92,6 +92,18 @@ async function initDb() {
                 FOREIGN KEY (cafe_id) REFERENCES cafes(id)  ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
+
+        // Ensure theme_mode column exists for existing users table
+        try {
+            await conn.execute("ALTER TABLE users ADD COLUMN theme_mode ENUM('light', 'dark') NOT NULL DEFAULT 'light' AFTER avatar")
+            console.log('[DB] Added theme_mode column to users table')
+        } catch (err) {
+            // Ignore error if column already exists (Error 1060)
+            if (err.code !== 'ER_DUP_FIELDNAME') {
+                console.error('[DB] Error adding theme_mode column:', err.message)
+            }
+        }
+
         // Seed default admin if no users exist
         const [[{ cnt }]] = await conn.execute('SELECT COUNT(*) AS cnt FROM users')
         if (cnt === 0) {
