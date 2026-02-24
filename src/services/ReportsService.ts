@@ -16,6 +16,7 @@ import type {
     IcafeProductsResponse,
     CustomerAnalysisResponse,
     PcStatusResponse,
+    ReportDataWithGames,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -215,9 +216,26 @@ export async function apiGetShiftBreakdown(
 
     if (!items || items.length === 0) return []
 
-    const details = await Promise.allSettled(
-        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
-    )
+    // Fetch shift details and reportData (for expense log_details) in parallel
+    const [details, reportDataResult] = await Promise.all([
+        Promise.allSettled(
+            items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+        ),
+        apiGetReportData<ReportDataWithGames>(cafeId, {
+            date_start: params.date_start,
+            date_end:   params.date_end,
+            time_start: params.time_start ?? '00:00',
+            time_end:   params.time_end   ?? '23:59',
+        }).catch(() => null),
+    ])
+
+    // Extract expense log_details from reportData.
+    // The reportData API returns aggregated expense items for the entire date range,
+    // not per-shift. We show these details on any row that has expenses.
+    const expenseItems = reportDataResult?.data?.income?.expense?.items
+    const expenseLogDetails = Array.isArray(expenseItems) && expenseItems.length > 0
+        ? expenseItems.map((item) => item.log_details).filter(Boolean).join('; ')
+        : undefined
 
     return details.reduce<ShiftBreakdownRow[]>((acc, result, idx) => {
         if (result.status !== 'fulfilled') return acc
@@ -250,7 +268,7 @@ export async function apiGetShiftBreakdown(
             refunds,
             center_expenses: expenses,
             total_profit:    totalProfit,
-            expense_log_details: d.log_details ? String(d.log_details) : undefined,
+            expense_log_details: expenses !== 0 ? expenseLogDetails : undefined,
             refund_reason:       d.reason ? String(d.reason) : undefined,
         })
         return acc

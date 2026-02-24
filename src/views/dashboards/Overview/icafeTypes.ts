@@ -79,10 +79,6 @@ export type ShiftDetailData = {
     qr_topup: number
     // Expenses (can be negative)
     center_expenses: number
-    // Expense detail description (if provided by the API)
-    log_details?: string
-    // Refund reason (if provided by the API)
-    reason?: string
     // Net total after refunds and expenses
     total_amount: number
     total_bonus: number
@@ -218,9 +214,25 @@ export type PcSpendItem = {
     total_spend: string
 }
 
+// ─── Report Data (Expense) Types ──────────────────────────────────────────────
+
+export type ExpenseItem = {
+    log_money: string
+    log_details: string
+}
+
+export type ReportDataIncome = {
+    expense?: {
+        amount: number
+        items?: ExpenseItem[]
+    }
+    [key: string]: unknown
+}
+
 export type ReportDataWithGames = {
     game?: GameItem[]
     top_five_pc_spend?: PcSpendItem[]
+    income?: ReportDataIncome
     [key: string]: unknown
 }
 
