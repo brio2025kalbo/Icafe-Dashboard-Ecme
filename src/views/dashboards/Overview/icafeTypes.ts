@@ -119,8 +119,8 @@ export type ShiftBreakdownRow = {
     refunds: number
     center_expenses: number
     total_profit: number
-    /** Expense detail description from the API */
-    expense_log_details?: string
+    /** Itemised expense entries from the API */
+    expense_items?: ExpenseItem[]
     /** Refund reason from the API */
     refund_reason?: string
 }

@@ -233,12 +233,12 @@ export async function apiGetShiftBreakdown(
         }).catch(() => null),
     ])
 
-    // Extract expense log_details from reportData.
+    // Extract expense items from reportData.
     // The reportData API returns aggregated expense items for the entire date range,
     // not per-shift. We show these details on any row that has expenses.
-    const expenseItems = reportDataResult?.data?.income?.expense?.items
-    const expenseLogDetails = Array.isArray(expenseItems) && expenseItems.length > 0
-        ? expenseItems.map((item) => item.log_details).filter(Boolean).join('; ')
+    const rawExpenseItems = reportDataResult?.data?.income?.expense?.items
+    const expenseItems = Array.isArray(rawExpenseItems) && rawExpenseItems.length > 0
+        ? rawExpenseItems
         : undefined
 
     return details.reduce<ShiftBreakdownRow[]>((acc, result, idx) => {
@@ -272,7 +272,7 @@ export async function apiGetShiftBreakdown(
             refunds,
             center_expenses: expenses,
             total_profit:    totalProfit,
-            expense_log_details: expenses !== 0 ? expenseLogDetails : undefined,
+            expense_items: expenses !== 0 ? expenseItems : undefined,
             refund_reason:       d.reason ? String(d.reason) : undefined,
         })
         return acc

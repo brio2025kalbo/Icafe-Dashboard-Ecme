@@ -1,6 +1,7 @@
 import useCountUp from '@/hooks/useCountUp'
 import Tooltip from '@/components/ui/Tooltip'
-import type { ShiftBreakdownRow } from '../icafeTypes'
+import type { ShiftBreakdownRow, ExpenseItem } from '../icafeTypes'
+import type { ReactNode } from 'react'
 
 type Props = {
     rows: ShiftBreakdownRow[]
@@ -26,7 +27,7 @@ const AnimatedCell = ({
 }: {
     value: number
     className?: string
-    tooltip?: string
+    tooltip?: string | ReactNode
 }) => {
     const animated = useCountUp(value)
     const content = <>{'\u20B1'}{fmt(animated)}</>
@@ -45,6 +46,23 @@ const AnimatedCell = ({
         <td className={`px-3 py-2 text-right whitespace-nowrap ${className ?? ''}`}>
             {content}
         </td>
+    )
+}
+
+/** Build a ReactNode tooltip showing each expense item on its own line */
+function buildExpenseTooltip(items?: ExpenseItem[]): ReactNode {
+    if (!items || items.length === 0) return undefined
+    return (
+        <div className="flex flex-col gap-1 text-xs">
+            {items.map((item, i) => (
+                <div key={`${item.log_details}-${item.log_money}-${i}`} className="flex justify-between gap-3">
+                    <span>{item.log_details}</span>
+                    <span className="font-semibold whitespace-nowrap">
+                        {'\u20B1'}{fmt(Math.abs(parseFloat(item.log_money) || 0))}
+                    </span>
+                </div>
+            ))}
+        </div>
     )
 }
 
@@ -111,7 +129,7 @@ const StaffBreakdownTable = ({ rows, loading }: Props) => {
                             <AnimatedCell
                                 value={row.center_expenses}
                                 className={row.center_expenses < 0 ? 'text-orange-500' : 'text-gray-700 dark:text-gray-300'}
-                                tooltip={row.expense_log_details || `Expense: ${'\u20B1'}${fmt(Math.abs(row.center_expenses))}`}
+                                tooltip={buildExpenseTooltip(row.expense_items) || `Expense: ${'\u20B1'}${fmt(Math.abs(row.center_expenses))}`}
                             />
                             <AnimatedCell
                                 value={row.total_profit}
