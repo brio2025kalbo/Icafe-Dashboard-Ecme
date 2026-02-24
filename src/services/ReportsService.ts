@@ -193,6 +193,9 @@ export async function apiGetShiftBreakdown(
     params: ShiftListParams,
 ): Promise<ShiftBreakdownRow[]> {
     let items: ShiftListResponse['data']
+    // For the reportData API, date_end must be the actual end date
+    // (next calendar day for daily business-day queries).
+    let reportDateEnd = params.date_end
 
     if (
         params.date_start &&
@@ -212,6 +215,7 @@ export async function apiGetShiftBreakdown(
         d.setDate(d.getDate() + 1)
         const nextDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
         items = await apiGetBusinessDayShiftList(cafeId, bizDate, nextDate)
+        reportDateEnd = nextDate
     }
 
     if (!items || items.length === 0) return []
@@ -223,9 +227,9 @@ export async function apiGetShiftBreakdown(
         ),
         apiGetReportData<ReportDataWithGames>(cafeId, {
             date_start: params.date_start,
-            date_end:   params.date_end,
-            time_start: params.time_start ?? '00:00',
-            time_end:   params.time_end   ?? '23:59',
+            date_end:   reportDateEnd,
+            time_start: params.time_start ?? '06:00',
+            time_end:   params.time_end   ?? '05:59',
         }).catch(() => null),
     ])
 
