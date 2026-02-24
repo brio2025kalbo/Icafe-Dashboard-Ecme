@@ -985,7 +985,7 @@ app.get('/api/dashboard/ecommerce', (req, res) => {
 
 // ── Serve the Vite production build (only when build/ exists) ───────────────
 const buildDir = path.join(__dirname, 'build')
-//const fs = require('fs')
+const fs = require('fs')
 if (fs.existsSync(buildDir)) {
     app.use(express.static(buildDir))
     app.use((req, res) => {

@@ -15,7 +15,6 @@ import type {
     Token,
 } from '@/@types/auth'
 import { useCafeStore } from '@/store/cafeStore'
-import { useThemeStore } from '@/store/themeStore'
 import type { ReactNode, Ref } from 'react'
 import type { NavigateFunction } from 'react-router'
 
@@ -61,7 +60,6 @@ function AuthProvider({ children }: AuthProviderProps) {
     const fetchCafes = useCafeStore((s) => s.fetchCafes)
     const setCafes = useCafeStore((s) => s.setCafes)
     const setSelectedCafeId = useCafeStore((s) => s.setSelectedCafeId)
-    const setThemeMode = useThemeStore((s) => s.setMode)
 
     const navigatorRef = useRef<IsolatedNavigatorRef>(null)
 
@@ -96,9 +94,6 @@ function AuthProvider({ children }: AuthProviderProps) {
                     // Refresh user data from server in case role/avatar changed
                     const data = await res.json()
                     setUser(data)
-                    if (data.theme_mode) {
-                        setThemeMode(data.theme_mode)
-                    }
                 }
             })
             .catch(() => {
@@ -147,9 +142,6 @@ function AuthProvider({ children }: AuthProviderProps) {
 
         if (user) {
             setUser(user)
-            if (user.theme_mode) {
-                setThemeMode(user.theme_mode)
-            }
         }
 
         // Re-fetch cafes with the new token so access-filtered list is applied immediately
