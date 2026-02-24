@@ -1,22 +1,24 @@
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, useState } from 'react'
 import Button from '@/components/ui/Button'
 import Upload from '@/components/ui/Upload'
 import Input from '@/components/ui/Input'
 import Select, { Option as DefaultOption } from '@/components/ui/Select'
 import Avatar from '@/components/ui/Avatar'
 import { Form, FormItem } from '@/components/ui/Form'
-import NumericInput from '@/components/shared/NumericInput'
+import Notification from '@/components/ui/Notification'
+import toast from '@/components/ui/toast'
 import { countryList } from '@/constants/countries.constant'
 import { components } from 'react-select'
 import type { ControlProps, OptionProps } from 'react-select'
 import { apiGetSettingsProfile } from '@/services/AccontsService'
-import sleep from '@/utils/sleep'
+import { useAuth } from '@/auth'
+import { useToken, useSessionUser } from '@/store/authStore'
 import useSWR from 'swr'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, Controller } from 'react-hook-form'
 import { z } from 'zod'
 import { HiOutlineUser } from 'react-icons/hi'
-import { TbPlus } from 'react-icons/tb'
+import { TbPlus, TbLoader2 } from 'react-icons/tb'
 import type { GetSettingsProfileResponse } from '../types'
 
 type ProfileSchema = {
@@ -133,11 +135,17 @@ const SettingsProfile = () => {
         return valid
     }
 
+    const { user } = useAuth()
+    const { token } = useToken()
+    const setUser = useSessionUser((state) => state.setUser)
+    const [uploading, setUploading] = useState(false)
+
     const {
         handleSubmit,
         reset,
         formState: { errors, isSubmitting },
         control,
+        setValue,
     } = useForm<ProfileSchema>({
         resolver: zodResolver(validationSchema),
     })
@@ -149,10 +157,80 @@ const SettingsProfile = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data])
 
+    const handleFileUpload = async (files: File[]) => {
+        if (files.length > 0 && token) {
+            setUploading(true)
+            const formData = new FormData()
+            formData.append('avatar', files[0])
+
+            try {
+                const response = await fetch('/api/profile/upload-avatar', {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: formData,
+                })
+                const result = await response.json()
+                if (result.ok) {
+                    setValue('img', result.avatarUrl)
+                    // Update global user state
+                    if (user) {
+                        setUser({ ...user, avatar: result.avatarUrl })
+                    }
+                    toast.push(
+                        <Notification title="Success" type="success">
+                            Avatar updated successfully
+                        </Notification>
+                    )
+                }
+            } catch (error) {
+                console.error('Upload failed:', error)
+                toast.push(
+                    <Notification title="Error" type="danger">
+                        Failed to upload avatar
+                    </Notification>
+                )
+            } finally {
+                setUploading(false)
+            }
+        }
+    }
+
     const onSubmit = async (values: ProfileSchema) => {
-        await sleep(500)
-        if (data) {
-            mutate({ ...data, ...values }, false)
+        if (user?.userId && token) {
+            try {
+                const response = await fetch(`/api/users/${user.userId}/profile`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify(values),
+                })
+                const result = await response.json()
+                if (result.ok) {
+                    mutate({ ...data, ...values }, false)
+                    // Update global user state
+                    setUser({ 
+                        ...user, 
+                        userName: values.firstName, // or however you want to map it
+                        avatar: values.img 
+                    })
+                    toast.push(
+                        <Notification title="Success" type="success">
+                            Profile updated successfully
+                        </Notification>
+                    )
+                }
+            } catch (error) {
+                console.error('Update failed:', error)
+                toast.push(
+                    <Notification title="Error" type="danger">
+                        Failed to update profile
+                    </Notification>
+                )
+            }
         }
     }
 
@@ -177,21 +255,14 @@ const SettingsProfile = () => {
                                         showList={false}
                                         uploadLimit={1}
                                         beforeUpload={beforeUpload}
-                                        onChange={(files) => {
-                                            if (files.length > 0) {
-                                                field.onChange(
-                                                    URL.createObjectURL(
-                                                        files[0],
-                                                    ),
-                                                )
-                                            }
-                                        }}
+                                        onChange={handleFileUpload}
                                     >
                                         <Button
                                             variant="solid"
                                             size="sm"
                                             type="button"
-                                            icon={<TbPlus />}
+                                            loading={uploading}
+                                            icon={uploading ? <TbLoader2 className="animate-spin" /> : <TbPlus />}
                                         >
                                             Upload Image
                                         </Button>
@@ -199,8 +270,19 @@ const SettingsProfile = () => {
                                     <Button
                                         size="sm"
                                         type="button"
-                                        onClick={() => {
+                                        onClick={async () => {
                                             field.onChange('')
+                                            if (user?.userId && token) {
+                                                await fetch(`/api/users/${user.userId}/profile`, {
+                                                    method: 'PUT',
+                                                    headers: {
+                                                        'Content-Type': 'application/json',
+                                                        Authorization: `Bearer ${token}`,
+                                                    },
+                                                    body: JSON.stringify({ avatar: '' }),
+                                                })
+                                                setUser({ ...user, avatar: '' })
+                                            }
                                         }}
                                     >
                                         Remove

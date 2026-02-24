@@ -3,12 +3,12 @@ const express = require('express')
 const path = require('path')
 const zlib = require('zlib')
 const https = require('https')
-const http = require('http')
-const { URL } = require('url')
+const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
 const mysql = require('mysql2/promise')
 const { randomUUID } = require('crypto')
-const bcrypt = require('bcryptjs')
-const jwt = require('jsonwebtoken')
+const fs = require('fs')
+const multer = require('multer')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -51,6 +51,14 @@ async function initDb() {
                 password_hash VARCHAR(255) NOT NULL,
                 role          ENUM('admin','staff') NOT NULL DEFAULT 'staff',
                 avatar        VARCHAR(500) NULL,
+                first_name    VARCHAR(100) NULL,
+                last_name     VARCHAR(100) NULL,
+                dial_code     VARCHAR(10)  NULL,
+                phone_number  VARCHAR(20)  NULL,
+                country       VARCHAR(100) NULL,
+                address       VARCHAR(255) NULL,
+                postcode      VARCHAR(20)  NULL,
+                city          VARCHAR(100) NULL,
                 theme_mode    ENUM('light', 'dark') NOT NULL DEFAULT 'light',
                 is_active     TINYINT(1)   NOT NULL DEFAULT 1,
                 created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -169,8 +177,37 @@ function requireAdmin(req, res, next) {
     next()
 }
 
-// ── Body parser ──────────────────────────────────────────────────────────────
+// ── Body parser ──────────────────────────────────────────────
 app.use(express.json())
+
+// ── Static Files ──────────────────────────────────────────────
+const uploadDir = path.join(__dirname, 'uploads')
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir)
+}
+app.use('/uploads', express.static(uploadDir))
+
+// ── Multer Setup ──────────────────────────────────────────────
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir)
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
+        cb(null, uniqueSuffix + path.extname(file.originalname))
+    }
+})
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true)
+        } else {
+            cb(new Error('Only images are allowed'))
+        }
+    }
+})
 
 // ── Request logger ───────────────────────────────────────────────────────────
 // Logs every incoming request: timestamp, method, path, IP
@@ -411,18 +448,48 @@ app.put('/api/users/:id/profile', requireAuth, async (req, res) => {
     const { id } = req.params
     if (id !== req.user.id && req.user.role !== 'admin')
         return res.status(403).json({ ok: false, error: 'Forbidden' })
-    const { username, avatar, theme_mode } = req.body || {}
+    
+    const { 
+        username, avatar, theme_mode, 
+        firstName, lastName, dialCode, phoneNumber, 
+        country, address, postcode, city 
+    } = req.body || {}
+
     try {
         const fields = []
         const vals = []
         if (username !== undefined) { fields.push('username=?'); vals.push(username.trim()) }
         if (avatar !== undefined)   { fields.push('avatar=?');   vals.push(avatar) }
         if (theme_mode !== undefined) { fields.push('theme_mode=?'); vals.push(theme_mode) }
+        
+        if (firstName !== undefined) { fields.push('first_name=?'); vals.push(firstName) }
+        if (lastName !== undefined)  { fields.push('last_name=?');  vals.push(lastName) }
+        if (dialCode !== undefined)  { fields.push('dial_code=?');  vals.push(dialCode) }
+        if (phoneNumber !== undefined) { fields.push('phone_number=?'); vals.push(phoneNumber) }
+        if (country !== undefined)   { fields.push('country=?');   vals.push(country) }
+        if (address !== undefined)   { fields.push('address=?');   vals.push(address) }
+        if (postcode !== undefined)  { fields.push('postcode=?');  vals.push(postcode) }
+        if (city !== undefined)      { fields.push('city=?');      vals.push(city) }
+
         if (!fields.length) return res.status(400).json({ ok: false, error: 'Nothing to update' })
         vals.push(id)
         await pool.execute(`UPDATE users SET ${fields.join(',')} WHERE id=?`, vals)
         await logActivity(req.user.id, 'update_profile', null, getIp(req))
         res.json({ ok: true })
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message })
+    }
+})
+
+// POST /api/profile/upload-avatar
+app.post('/api/profile/upload-avatar', requireAuth, upload.single('avatar'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ ok: false, message: 'No file uploaded' })
+    }
+    const avatarUrl = `/uploads/${req.file.filename}`
+    try {
+        await pool.execute('UPDATE users SET avatar = ? WHERE id = ?', [avatarUrl, req.user.id])
+        res.json({ ok: true, avatarUrl })
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message })
     }
@@ -434,22 +501,22 @@ app.put('/api/users/:id/profile', requireAuth, async (req, res) => {
 app.get('/api/setting/profile', requireAuth, async (req, res) => {
     try {
         const [[u]] = await pool.execute(
-            'SELECT id, username, email, avatar, role, created_at FROM users WHERE id=?',
+            'SELECT * FROM users WHERE id=?',
             [req.user.id]
         )
         if (!u) return res.status(404).json({ ok: false, error: 'User not found' })
         // Return shape compatible with SettingsProfile form
         res.json({
-            firstName: u.username,
-            lastName:  '',
+            firstName: u.first_name || u.username,
+            lastName:  u.last_name || '',
             email:     u.email,
             img:       u.avatar || '',
-            dialCode:  '',
-            phoneNumber: '',
-            country:   '',
-            address:   '',
-            postcode:  '',
-            city:      '',
+            dialCode:  u.dial_code || '',
+            phoneNumber: u.phone_number || '',
+            country:   u.country || '',
+            address:   u.address || '',
+            postcode:  u.postcode || '',
+            city:      u.city || '',
         })
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message })

@@ -51,6 +51,7 @@
     "jsonwebtoken": "^9.0.3",
     "lodash": "^4.17.21",
     "marked": "^16.2.0",
+    "multer": "^2.0.2",
     "mysql2": "^3.17.4",
     "react": "19.2.3",
     "react-apexcharts": "^1.7.0",
