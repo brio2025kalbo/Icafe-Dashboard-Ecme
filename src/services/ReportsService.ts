@@ -250,6 +250,8 @@ export async function apiGetShiftBreakdown(
             refunds,
             center_expenses: expenses,
             total_profit:    totalProfit,
+            expense_log_details: d.log_details ? String(d.log_details) : undefined,
+            refund_reason:       d.reason ? String(d.reason) : undefined,
         })
         return acc
     }, [])

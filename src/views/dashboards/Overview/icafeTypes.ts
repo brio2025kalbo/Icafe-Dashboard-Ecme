@@ -79,6 +79,10 @@ export type ShiftDetailData = {
     qr_topup: number
     // Expenses (can be negative)
     center_expenses: number
+    // Expense detail description (if provided by the API)
+    log_details?: string
+    // Refund reason (if provided by the API)
+    reason?: string
     // Net total after refunds and expenses
     total_amount: number
     total_bonus: number
@@ -119,6 +123,10 @@ export type ShiftBreakdownRow = {
     refunds: number
     center_expenses: number
     total_profit: number
+    /** Expense detail description from the API */
+    expense_log_details?: string
+    /** Refund reason from the API */
+    refund_reason?: string
 }
 
 export type PeriodType = 'daily' | 'weekly' | 'monthly' | 'yearly'
