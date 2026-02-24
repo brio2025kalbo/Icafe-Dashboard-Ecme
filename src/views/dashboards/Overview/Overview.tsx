@@ -7,6 +7,7 @@ import TopGames from './components/TopGames'
 import TopProduct from './components/TopProduct'
 import TopPcs from './components/TopPcs'
 import SessionStats from './components/SessionStats'
+import ComputerUtilization from './components/ComputerUtilization'
 import IcafeReportsSection from './components/IcafeReportsSection'
 import IcafeShiftSection from './components/IcafeShiftSection'
 import { apiGetEcommerceDashboard } from '@/services/DashboardService'
@@ -60,6 +61,11 @@ const SalesDashboard = () => {
                             <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
                                 
                                 <SessionStats refreshSignal={overviewRefreshKey} />
+                            </div>
+
+                            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                                
+                                <ComputerUtilization refreshSignal={overviewRefreshKey} />
                             </div>
 
                             <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">

@@ -1,46 +1,45 @@
+import SideNav from '@/components/template/SideNav'
 import Header from '@/components/template/Header'
-import UserProfileDropdown from '@/components//template/UserProfileDropdown'
-import HeaderModeSwitcher from '@/components/template/HeaderModeSwitcher'
-import HeaderLogo from '@/components/template/HeaderLogo'
+import SideNavToggle from '@/components/template/SideNavToggle'
 import MobileNav from '@/components/template/MobileNav'
-import HorizontalNav from '@/components/template/HorizontalNav'
+import UserProfileDropdown from '@/components//template/UserProfileDropdown'
 import LayoutBase from '@/components//template/LayoutBase'
 import useResponsive from '@/utils/hooks/useResponsive'
-import { LAYOUT_TOP_BAR_CLASSIC } from '@/constants/theme.constant'
+import { LAYOUT_COLLAPSIBLE_SIDE } from '@/constants/theme.constant'
 import type { CommonProps } from '@/@types/common'
 
-const TopBarClassic = ({ children }: CommonProps) => {
+const CollapsibleSide = ({ children }: CommonProps) => {
     const { larger, smaller } = useResponsive()
 
     return (
         <LayoutBase
-            type={LAYOUT_TOP_BAR_CLASSIC}
-            className="app-layout-top-bar-classic flex flex-auto flex-col min-h-screen"
+            type={LAYOUT_COLLAPSIBLE_SIDE}
+            className="app-layout-collapsible-side flex flex-auto flex-col"
         >
             <div className="flex flex-auto min-w-0">
+                {larger.lg && <SideNav />}
                 <div className="flex flex-col flex-auto min-h-screen min-w-0 relative w-full">
                     <Header
-                        container
                         className="shadow-sm dark:shadow-2xl"
                         headerStart={
                             <>
                                 {smaller.lg && <MobileNav />}
-                                <HeaderLogo />
+                                {larger.lg && <SideNavToggle />}
                             </>
                         }
-                        headerMiddle={<>{larger.lg && <HorizontalNav />}</>}
                         headerEnd={
                             <>
-                                <HeaderModeSwitcher />
                                 <UserProfileDropdown hoverable={false} />
                             </>
                         }
                     />
-                    {children}
+                    <div className="h-full flex flex-auto flex-col">
+                        {children}
+                    </div>
                 </div>
             </div>
         </LayoutBase>
     )
 }
 
-export default TopBarClassic
+export default CollapsibleSide

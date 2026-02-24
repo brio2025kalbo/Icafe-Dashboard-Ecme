@@ -3,7 +3,7 @@ import Card from '@/components/ui/Card'
 import Chart from '@/components/shared/Chart'
 import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_7 } from '@/constants/chart.constant'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import { apiGetCustomerAnalysis } from '@/services/ReportsService'
 import { getTodayBusinessDateStr } from '../utils/periodUtils'
 import type { IncomeChartItem } from '../icafeTypes'
@@ -18,6 +18,7 @@ const RevenueBreakdown = ({
     refreshSignal?: number
 }) => {
     const cafes = useCafeStore((s) => s.cafes)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
     const [incomeChart, setIncomeChart] = useState<IncomeChartItem[]>([])
     const [memberRanking, setMemberRanking] = useState<MemberRankingEntry[]>(
         [],
@@ -27,7 +28,10 @@ const RevenueBreakdown = ({
     const hasLoadedOnce = useRef(false)
 
     const fetchData = useCallback(async () => {
-        const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+        const allValid = cafes.filter((c) => c.cafeId && c.apiKey)
+        const validCafes = filterCafeId === ALL_CAFES_VALUE
+            ? allValid
+            : allValid.filter((c) => c.id === filterCafeId)
         if (validCafes.length === 0) {
             setIncomeChart([])
             setMemberRanking([])
@@ -104,7 +108,7 @@ const RevenueBreakdown = ({
         } finally {
             setLoading(false)
         }
-    }, [cafes])
+    }, [cafes, filterCafeId])
 
     useEffect(() => {
         fetchData()

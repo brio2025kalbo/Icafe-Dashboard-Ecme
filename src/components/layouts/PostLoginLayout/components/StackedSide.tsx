@@ -2,6 +2,7 @@ import StackedSideNav from '@/components/template/StackedSideNav'
 import Header from '@/components/template/Header'
 import MobileNav from '@/components/template/MobileNav'
 import UserProfileDropdown from '@/components//template/UserProfileDropdown'
+import HeaderModeSwitcher from '@/components/template/HeaderModeSwitcher'
 import LayoutBase from '@/components//template/LayoutBase'
 import useResponsive from '@/utils/hooks/useResponsive'
 import { LAYOUT_STACKED_SIDE } from '@/constants/theme.constant'
@@ -23,6 +24,7 @@ const StackedSide = ({ children }: CommonProps) => {
                         headerStart={<>{smaller.lg && <MobileNav />}</>}
                         headerEnd={
                             <>
+                                <HeaderModeSwitcher />
                                 <UserProfileDropdown hoverable={false} />
                             </>
                         }

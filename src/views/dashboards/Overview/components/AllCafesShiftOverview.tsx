@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Tabs, Notification, toast } from '@/components/ui'
+import Select from '@/components/ui/Select'
+import DatePicker from '@/components/ui/DatePicker'
 import {
     TbCurrencyDollar,
     TbArrowUpCircle,
@@ -20,7 +22,7 @@ import {
     getTodayBusinessDateStr,
     PERIOD_OPTIONS,
 } from '../utils/periodUtils'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import type { PeriodType, ShiftStats } from '../icafeTypes'
 import classNames from 'classnames'
 
@@ -36,14 +38,22 @@ const EMPTY_STATS: ShiftStats = {
 const WARN_MINUTES  = 3
 const STALE_MINUTES = 10
 
-function addDaysToStr(dateStr: string, n: number): string {
+function parseLocalDate(dateStr: string): Date {
     const parts = dateStr.split('-').map(Number)
-    const d = new Date(parts[0], parts[1] - 1, parts[2])
-    d.setDate(d.getDate() + n)
+    return new Date(parts[0], parts[1] - 1, parts[2])
+}
+
+function toDateStr(d: Date): string {
     const y = d.getFullYear()
     const m = String(d.getMonth() + 1).padStart(2, '0')
     const day = String(d.getDate()).padStart(2, '0')
     return `${y}-${m}-${day}`
+}
+
+function addDaysToStr(dateStr: string, n: number): string {
+    const d = parseLocalDate(dateStr)
+    d.setDate(d.getDate() + n)
+    return toDateStr(d)
 }
 
 type Props = { refreshSignal?: number }
@@ -51,6 +61,8 @@ type Props = { refreshSignal?: number }
 const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
     const cafes = useCafeStore((s) => s.cafes)
     const setCombinedStats = useCafeStore((s) => s.setCombinedStats)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
+    const setFilterCafeId = useCafeStore((s) => s.setFilterCafeId)
     const [period, setPeriod] = useState<PeriodType>('daily')
     const [selectedDate, setSelectedDate] = useState<string>(getTodayBusinessDateStr())
     const [combined, setCombined] = useState<ShiftStats>(EMPTY_STATS)
@@ -72,7 +84,24 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
         return () => clearInterval(timer)
     }, [])
 
-    const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+    const allValidCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+
+    const validCafes = filterCafeId === ALL_CAFES_VALUE
+        ? allValidCafes
+        : allValidCafes.filter((c) => c.id === filterCafeId)
+
+    const filterOptions = [
+        { value: ALL_CAFES_VALUE, label: 'All Cafes' },
+        ...allValidCafes.map((c) => ({ value: c.id, label: c.name })),
+    ]
+    const selectedFilterOption = filterOptions.find((o) => o.value === filterCafeId) ?? filterOptions[0]
+
+    // Reset filter when selected cafe is no longer valid
+    useEffect(() => {
+        if (filterCafeId !== ALL_CAFES_VALUE && !allValidCafes.some((c) => c.id === filterCafeId)) {
+            setFilterCafeId(ALL_CAFES_VALUE)
+        }
+    }, [allValidCafes, filterCafeId])
 
     const fetchAll = useCallback(async () => {
         if (validCafes.length === 0) {
@@ -146,7 +175,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
             )
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cafes, period, selectedDate])
+    }, [cafes, period, selectedDate, filterCafeId])
 
     useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -217,6 +246,77 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                         )}
                     </div>
                 </div>
+                {/* <Select
+                    className="min-w-[160px]"
+                    size="sm"
+                    placeholder="Filter cafe"
+                    value={selectedFilterOption}
+                    options={filterOptions}
+                    isSearchable={false}
+                    onChange={(option) => {
+                        if (option?.value) {
+                            setFilterCafeId(option.value)
+                        }
+                    }}
+                /> */}
+                <div className="flex items-center gap-3 ml-auto flex-wrap">
+                    <Select
+                        className="min-w-[160px]"
+                        size="sm"
+                        placeholder="Filter cafe"
+                        value={selectedFilterOption}
+                        options={filterOptions}
+                        isSearchable={false}
+                        onChange={(option) => {
+                            if (option?.value) {
+                                setFilterCafeId(option.value)
+                            }
+                        }}
+                    />
+                {period === 'daily' && (
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setSelectedDate(addDaysToStr(selectedDate, -1))}
+                            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                            title="Previous business day"
+                        >
+                            <TbChevronLeft className="text-lg" />
+                        </button>
+
+                        <DatePicker
+                            className="w-[140px] shrink-0"
+                            size="sm"
+                            value={parseLocalDate(selectedDate)}
+                            maxDate={parseLocalDate(todayStr)}
+                            inputFormat="YYYY-MM-DD"
+                            clearable={false}
+                            onChange={(date) => {
+                                if (date) setSelectedDate(toDateStr(date))
+                            }}
+                        />
+
+                        <button
+                            onClick={() => setSelectedDate(addDaysToStr(selectedDate, 1))}
+                            disabled={isToday}
+                            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Next business day"
+                        >
+                            <TbChevronRight className="text-lg" />
+                        </button>
+
+                        {!isToday && (
+                            <button
+                                onClick={() => setSelectedDate(todayStr)}
+                                className="text-xs text-blue-500 hover:underline"
+                            >
+                                Today
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                
+            </div>
             </div>
 
             <Tabs value={period} onChange={(val) => setPeriod(val as PeriodType)}>
@@ -229,7 +329,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                 </Tabs.TabList>
             </Tabs>
 
-            {period === 'daily' && (
+            {/* {period === 'daily' && (
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setSelectedDate(addDaysToStr(selectedDate, -1))}
@@ -238,12 +338,15 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                     >
                         <TbChevronLeft className="text-lg" />
                     </button>
-                    <input
-                        type="date"
-                        value={selectedDate}
-                        max={todayStr}
-                        onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-                        className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                    <DatePicker
+                        size="sm"
+                        value={parseLocalDate(selectedDate)}
+                        maxDate={parseLocalDate(todayStr)}
+                        inputFormat="YYYY-MM-DD"
+                        clearable={false}
+                        onChange={(date) => {
+                            if (date) setSelectedDate(toDateStr(date))
+                        }}
                     />
                     <button
                         onClick={() => setSelectedDate(addDaysToStr(selectedDate, 1))}
@@ -262,7 +365,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                         </button>
                     )}
                 </div>
-            )}
+            )} */}
 
             {errors.length > 0 && (
                 <div className="flex flex-col gap-1">

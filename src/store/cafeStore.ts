@@ -11,9 +11,12 @@ function authHeaders(): HeadersInit {
     }
 }
 
+export const ALL_CAFES_VALUE = '__all__'
+
 type CafeState = {
     cafes: Cafe[]
     selectedCafeId: string | null
+    filterCafeId: string
     loading: boolean
     error: string | null
     combinedStats: ShiftStats | null
@@ -26,12 +29,14 @@ type CafeAction = {
     reorderCafes: (ids: string[]) => Promise<void>
     setCafes: (cafes: Cafe[]) => void
     setSelectedCafeId: (cafeId: string | null) => void
+    setFilterCafeId: (cafeId: string) => void
     setCombinedStats: (stats: ShiftStats) => void
 }
 
 export const useCafeStore = create<CafeState & CafeAction>()((set) => ({
     cafes: [],
     selectedCafeId: null,
+    filterCafeId: ALL_CAFES_VALUE,
     loading: false,
     error: null,
     combinedStats: null,
@@ -94,5 +99,6 @@ export const useCafeStore = create<CafeState & CafeAction>()((set) => ({
 
     setCafes: (cafes) => set({ cafes }),
     setSelectedCafeId: (cafeId) => set({ selectedCafeId: cafeId }),
+    setFilterCafeId: (cafeId) => set({ filterCafeId: cafeId }),
     setCombinedStats: (stats) => set({ combinedStats: stats }),
 }))

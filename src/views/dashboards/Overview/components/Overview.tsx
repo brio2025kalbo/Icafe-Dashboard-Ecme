@@ -5,10 +5,11 @@ import GrowShrinkValue from '@/components/shared/GrowShrinkValue'
 import AbbreviateNumber from '@/components/shared/AbbreviateNumber'
 import Chart from '@/components/shared/Chart'
 import { useThemeStore } from '@/store/themeStore'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import classNames from '@/utils/classNames'
 import { COLOR_1, COLOR_2, COLOR_4 } from '@/constants/chart.constant'
 import { options } from '../constants'
+import DatePicker from '@/components/ui/DatePicker'
 import { TbCoin, TbShoppingBagCheck, TbEye, TbReceiptRefund, TbBuildingStore, TbArrowUpCircle, TbShoppingCart, TbChevronLeft, TbChevronRight } from 'react-icons/tb'
 import { apiGetShiftStats } from '@/services/ReportsService'
 import {
@@ -21,14 +22,22 @@ import type { StatisticData, Period, EcommercePeriod, StatisticCategory } from '
 import useCountUp from '@/hooks/useCountUp'
 import type { PeriodType, ShiftStats } from '../icafeTypes'
 
-function addDaysToStr(dateStr: string, n: number): string {
+function parseLocalDate(dateStr: string): Date {
     const parts = dateStr.split('-').map(Number)
-    const d = new Date(parts[0], parts[1] - 1, parts[2])
-    d.setDate(d.getDate() + n)
+    return new Date(parts[0], parts[1] - 1, parts[2])
+}
+
+function toDateStr(d: Date): string {
     const y = d.getFullYear()
     const m = String(d.getMonth() + 1).padStart(2, '0')
     const day = String(d.getDate()).padStart(2, '0')
     return `${y}-${m}-${day}`
+}
+
+function addDaysToStr(dateStr: string, n: number): string {
+    const d = parseLocalDate(dateStr)
+    d.setDate(d.getDate() + n)
+    return toDateStr(d)
 }
 
 function formatCurrency(val: number): string {
@@ -157,6 +166,8 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
     }, [selectedPeriod])
 
     const cafes = useCafeStore((s) => s.cafes)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
+    const setFilterCafeId = useCafeStore((s) => s.setFilterCafeId)
     const [localStats, setLocalStats] = useState<ShiftStats>(EMPTY_STATS)
     const [loading, setLoading] = useState(false)
 
@@ -177,7 +188,24 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
         }
     }, [sideNavCollapse])
 
-    const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+    const allValidCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+
+    const validCafes = filterCafeId === ALL_CAFES_VALUE
+        ? allValidCafes
+        : allValidCafes.filter((c) => c.id === filterCafeId)
+
+    const filterOptions = [
+        { value: ALL_CAFES_VALUE, label: 'All Cafes' },
+        ...allValidCafes.map((c) => ({ value: c.id, label: c.name })),
+    ]
+    const selectedFilterOption = filterOptions.find((o) => o.value === filterCafeId) ?? filterOptions[0]
+
+    // Reset filter when selected cafe is no longer valid
+    useEffect(() => {
+        if (filterCafeId !== ALL_CAFES_VALUE && !allValidCafes.some((c) => c.id === filterCafeId)) {
+            setFilterCafeId(ALL_CAFES_VALUE)
+        }
+    }, [allValidCafes, filterCafeId, setFilterCafeId])
 
     const fetchStats = useCallback(async () => {
         if (validCafes.length === 0) {
@@ -219,7 +247,7 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
         setLocalStats(totals)
         setLoading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cafes, selectedPeriod, selectedDate, refreshSignal])
+    }, [cafes, selectedPeriod, selectedDate, refreshSignal, filterCafeId])
 
     useEffect(() => { fetchStats() }, [fetchStats])
 
@@ -233,23 +261,95 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
         <Card>
             <div className="flex items-center justify-between">
                 <h4>Overview</h4>
-                <Select
-                    className="w-[120px]"
-                    size="sm"
-                    placeholder="Select period"
-                    value={options.filter(
-                        (option) => option.value === selectedPeriod,
+                <div className="flex items-center gap-2">
+                    <Select
+                        className="min-w-[160px]"
+                        size="sm"
+                        placeholder="Filter cafe"
+                        value={selectedFilterOption}
+                        options={filterOptions}
+                        isSearchable={false}
+                        onChange={(option) => {
+                            if (option?.value) {
+                                setFilterCafeId(option.value)
+                            }
+                        }}
+                    />
+                    {/* <Select
+                        className="w-[120px]"
+                        size="sm"
+                        placeholder="Select period"
+                        value={options.filter(
+                            (option) => option.value === selectedPeriod,
+                        )}
+                        options={options}
+                        isSearchable={false}
+                        onChange={(option) => {
+                            if (option?.value) {
+                                setSelectedPeriod(option?.value)
+                            }
+                        }}
+                    /> */}
+                    <Select
+                        className="w-[120px]"
+                        size="sm"
+                        placeholder="Select period"
+                        value={options.filter(
+                            (option) => option.value === selectedPeriod,
+                        )}
+                        options={options}
+                        isSearchable={false}
+                        onChange={(option) => {
+                            if (option?.value) {
+                                setSelectedPeriod(option?.value)
+                            }
+                        }}
+                    />
+
+                    {selectedPeriod === 'thisDay' && (
+                        <div className="flex items-center gap-2 ml-1">
+                            <button
+                                onClick={() => setSelectedDate(addDaysToStr(selectedDate, -1))}
+                                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                                title="Previous business day"
+                            >
+                                <TbChevronLeft className="text-lg" />
+                            </button>
+
+                            <DatePicker
+                                className="w-[140px] shrink-0"
+                                size="sm"
+                                value={parseLocalDate(selectedDate)}
+                                maxDate={parseLocalDate(todayStr)}
+                                inputFormat="YYYY-MM-DD"
+                                clearable={false}
+                                onChange={(date) => {
+                                    if (date) setSelectedDate(toDateStr(date))
+                                }}
+                            />
+
+                            <button
+                                onClick={() => setSelectedDate(addDaysToStr(selectedDate, 1))}
+                                disabled={isToday}
+                                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Next business day"
+                            >
+                                <TbChevronRight className="text-lg" />
+                            </button>
+
+                            {!isToday && (
+                                <button
+                                    onClick={() => setSelectedDate(todayStr)}
+                                    className="text-xs text-blue-500 hover:underline"
+                                >
+                                    Today
+                                </button>
+                            )}
+                        </div>
                     )}
-                    options={options}
-                    isSearchable={false}
-                    onChange={(option) => {
-                        if (option?.value) {
-                            setSelectedPeriod(option?.value)
-                        }
-                    }}
-                />
+                </div>
             </div>
-            {selectedPeriod === 'thisDay' && (
+            {/* {selectedPeriod === 'thisDay' && (
                 <div className="flex items-center gap-2 mt-3">
                     <button
                         onClick={() => setSelectedDate(addDaysToStr(selectedDate, -1))}
@@ -258,13 +358,15 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                     >
                         <TbChevronLeft className="text-lg" />
                     </button>
-                    <input
-                        type="date"
-                        value={selectedDate}
-                        max={todayStr}
-                        aria-label="Select business date"
-                        onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-                        className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                    <DatePicker
+                        size="sm"
+                        value={parseLocalDate(selectedDate)}
+                        maxDate={parseLocalDate(todayStr)}
+                        inputFormat="YYYY-MM-DD"
+                        clearable={false}
+                        onChange={(date) => {
+                            if (date) setSelectedDate(toDateStr(date))
+                        }}
                     />
                     <button
                         onClick={() => setSelectedDate(addDaysToStr(selectedDate, 1))}
@@ -283,7 +385,7 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                         </button>
                     )}
                 </div>
-            )}
+            )} */}
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 rounded-2xl p-3 bg-gray-100 dark:bg-gray-700 mt-4">
                 <StatisticCard
                     title="Total profit"

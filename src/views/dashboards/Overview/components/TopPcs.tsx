@@ -3,7 +3,7 @@ import Card from '@/components/ui/Card'
 import classNames from '@/utils/classNames'
 import isLastChild from '@/utils/isLastChild'
 import { TbDeviceDesktop } from 'react-icons/tb'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import { apiGetReportData } from '@/services/ReportsService'
 import { getDateRange } from '../utils/periodUtils'
 import type { PcSpendItem, ReportDataWithGames } from '../icafeTypes'
@@ -12,13 +12,17 @@ const MAX_PCS = 10
 
 const TopPcs = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
     const cafes = useCafeStore((s) => s.cafes)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
     const [pcs, setPcs] = useState<PcSpendItem[]>([])
     const [loading, setLoading] = useState(false)
     const prevSignal = useRef(refreshSignal)
     const hasLoadedOnce = useRef(false)
 
     const fetchTopPcs = useCallback(async () => {
-        const validCafes = cafes.filter((c) => c.cafeId && c.apiKey)
+        const allValid = cafes.filter((c) => c.cafeId && c.apiKey)
+        const validCafes = filterCafeId === ALL_CAFES_VALUE
+            ? allValid
+            : allValid.filter((c) => c.id === filterCafeId)
         if (validCafes.length === 0) {
             setPcs([])
             return
@@ -68,7 +72,7 @@ const TopPcs = ({ refreshSignal = 0 }: { refreshSignal?: number }) => {
         } finally {
             setLoading(false)
         }
-    }, [cafes])
+    }, [cafes, filterCafeId])
 
     useEffect(() => {
         fetchTopPcs()

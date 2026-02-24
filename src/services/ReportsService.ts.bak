@@ -15,8 +15,6 @@ import type {
     IcafeProduct,
     IcafeProductsResponse,
     CustomerAnalysisResponse,
-    IcafeGame,
-    IcafeGamesResponse,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -459,58 +457,4 @@ export async function apiGetTopProducts(
     return Array.from(productMap.entries())
         .map(([product_name, data]) => ({ product_name, ...data }))
         .sort((a, b) => b.total_sold - a.total_sold)
-}
-
-// ─── Games Catalog ────────────────────────────────────────────────────────────
-
-export async function apiGetCafeGames(
-    cafeId: string,
-): Promise<IcafeGame[]> {
-    const cafe = getCafeById(cafeId)
-    const allGames: IcafeGame[] = []
-    let page = 1
-    let totalPages = 1
-
-    do {
-        const response = await icafeAxios.get<IcafeGamesResponse>(
-            `/cafe/${cafe.cafeId}/games`,
-            {
-                params: { page },
-                headers: { Authorization: `Bearer ${cafe.apiKey}` },
-            },
-        )
-        const items = response.data?.data?.items
-        if (!items || items.length === 0) break
-        allGames.push(...items)
-
-        const paging = response.data?.data?.paging_info
-        totalPages = paging?.pages ?? 1
-        page++
-    } while (page <= totalPages)
-
-    return allGames
-}
-
-// ─── Game Poster ──────────────────────────────────────────────────────────────
-
-export async function apiGetGamePosterBlob(
-    cafeId: string,
-    gameId: number,
-): Promise<string | null> {
-    try {
-        const cafe = getCafeById(cafeId)
-        const response = await icafeAxios.get(
-            `/cafe/${cafe.cafeId}/games/${gameId}/poster`,
-            {
-                headers: { Authorization: `Bearer ${cafe.apiKey}` },
-                responseType: 'arraybuffer',
-            },
-        )
-        const contentType =
-            (response.headers?.['content-type'] as string) || 'image/png'
-        const blob = new Blob([response.data], { type: contentType })
-        return URL.createObjectURL(blob)
-    } catch {
-        return null
-    }
 }
