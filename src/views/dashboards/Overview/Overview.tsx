@@ -78,7 +78,7 @@ const SalesDashboard = () => {
                                 <RecentOrder data={data.recentOrders} />
                             </div>
 
-                            
+                            <ComputerUtilization refreshSignal={overviewRefreshKey} />
                         </div>
     
                         {/* RIGHT SIDEBAR */}
