@@ -51,6 +51,7 @@ async function initDb() {
                 password_hash VARCHAR(255) NOT NULL,
                 role          ENUM('admin','staff') NOT NULL DEFAULT 'staff',
                 avatar        VARCHAR(500) NULL,
+                theme_mode    ENUM('light', 'dark') NOT NULL DEFAULT 'light',
                 is_active     TINYINT(1)   NOT NULL DEFAULT 1,
                 created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -210,6 +211,7 @@ const handleSignIn = async (req, res) => {
                 userName:  user.username,
                 email:     user.email,
                 avatar:    user.avatar || '',
+                theme_mode: user.theme_mode,
                 authority: [user.role, 'user'],
             },
         })
@@ -253,6 +255,7 @@ const handleSignUp = async (req, res) => {
                 userName: userName.trim(),
                 email:    email.toLowerCase().trim(),
                 avatar:   '',
+                theme_mode: 'light',
                 authority: ['staff', 'user'],
             },
         })
@@ -290,6 +293,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
         userName:  u.username,
         email:     u.email,
         avatar:    u.avatar || '',
+        theme_mode: u.theme_mode,
         authority: [u.role, 'user'],
     })
 })
@@ -395,12 +399,13 @@ app.put('/api/users/:id/profile', requireAuth, async (req, res) => {
     const { id } = req.params
     if (id !== req.user.id && req.user.role !== 'admin')
         return res.status(403).json({ ok: false, error: 'Forbidden' })
-    const { username, avatar } = req.body || {}
+    const { username, avatar, theme_mode } = req.body || {}
     try {
         const fields = []
         const vals = []
         if (username !== undefined) { fields.push('username=?'); vals.push(username.trim()) }
         if (avatar !== undefined)   { fields.push('avatar=?');   vals.push(avatar) }
+        if (theme_mode !== undefined) { fields.push('theme_mode=?'); vals.push(theme_mode) }
         if (!fields.length) return res.status(400).json({ ok: false, error: 'Nothing to update' })
         vals.push(id)
         await pool.execute(`UPDATE users SET ${fields.join(',')} WHERE id=?`, vals)
