@@ -30,17 +30,20 @@ const AnimatedCell = ({
 }) => {
     const animated = useCountUp(value)
     const content = <>{'\u20B1'}{fmt(animated)}</>
-    return (
-        <td className={`px-3 py-2 text-right whitespace-nowrap ${className ?? ''}`}>
-            {tooltip ? (
+    if (tooltip) {
+        return (
+            <td className={`px-3 py-2 text-right whitespace-nowrap ${className ?? ''}`}>
                 <Tooltip title={tooltip} placement="top">
                     <span className="cursor-pointer underline decoration-dotted">
                         {content}
                     </span>
                 </Tooltip>
-            ) : (
-                content
-            )}
+            </td>
+        )
+    }
+    return (
+        <td className={`px-3 py-2 text-right whitespace-nowrap ${className ?? ''}`}>
+            {content}
         </td>
     )
 }
@@ -103,12 +106,12 @@ const StaffBreakdownTable = ({ rows, loading }: Props) => {
                             <AnimatedCell
                                 value={row.refunds}
                                 className={row.refunds < 0 ? 'text-red-500' : 'text-gray-700 dark:text-gray-300'}
-                                tooltip={row.refund_reason}
+                                tooltip={row.refund_reason || `Refund: ${'\u20B1'}${fmt(Math.abs(row.refunds))}`}
                             />
                             <AnimatedCell
                                 value={row.center_expenses}
                                 className={row.center_expenses < 0 ? 'text-orange-500' : 'text-gray-700 dark:text-gray-300'}
-                                tooltip={row.expense_log_details}
+                                tooltip={row.expense_log_details || `Expense: ${'\u20B1'}${fmt(Math.abs(row.center_expenses))}`}
                             />
                             <AnimatedCell
                                 value={row.total_profit}
