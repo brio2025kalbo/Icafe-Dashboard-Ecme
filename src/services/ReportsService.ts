@@ -19,12 +19,39 @@ import type {
     PcStatusResponse,
     ReportDataWithGames,
     ExpenseItem,
+    RefundItem,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
     baseURL: appConfig.reportsApiPrefix,
     timeout: 60000, // 60s for slow connections
 })
+
+// ─── Concurrency-limited Promise.allSettled ──────────────────────────────────
+// Runs at most `limit` tasks concurrently, avoiding upstream 507 rate limits.
+const DEFAULT_CONCURRENCY = 2
+
+async function throttledAllSettled<T>(
+    tasks: Array<() => Promise<T>>,
+    limit = DEFAULT_CONCURRENCY,
+): Promise<PromiseSettledResult<T>[]> {
+    const results: PromiseSettledResult<T>[] = new Array(tasks.length)
+    let idx = 0
+
+    async function worker() {
+        while (idx < tasks.length) {
+            const i = idx++
+            try {
+                results[i] = { status: 'fulfilled', value: await tasks[i]() }
+            } catch (reason) {
+                results[i] = { status: 'rejected', reason }
+            }
+        }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => worker()))
+    return results
+}
 
 function getCafeById(cafeId: string) {
     const cafe = useCafeStore.getState().cafes.find((c) => c.id === cafeId)
@@ -218,9 +245,9 @@ export async function apiGetShiftBreakdown(
 
     if (!items || items.length === 0) return []
 
-    // Fetch shift details
-    const details = await Promise.allSettled(
-        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+    // Fetch shift details (throttled to avoid upstream rate limits)
+    const details = await throttledAllSettled(
+        items.map((s) => () => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
     )
 
     // Build preliminary rows and collect shifts that have expenses
@@ -251,7 +278,7 @@ export async function apiGetShiftBreakdown(
     // weekly/monthly/yearly views don't combine expenses across shifts.
     const shiftExpenseItems: Array<ExpenseItem[] | undefined> = new Array(prelimRows.length).fill(undefined)
     const expenseFetchIndices: number[] = []
-    const expenseFetchPromises: Array<Promise<IcafeApiResponse<ReportDataWithGames>>> = []
+    const expenseFetchTasks: Array<() => Promise<IcafeApiResponse<ReportDataWithGames>>> = []
 
     for (let i = 0; i < prelimRows.length; i++) {
         const { d, staffName, expenses } = prelimRows[i]
@@ -272,7 +299,7 @@ export async function apiGetShiftBreakdown(
         }
 
         expenseFetchIndices.push(i)
-        expenseFetchPromises.push(
+        expenseFetchTasks.push(() =>
             apiGetReportData<ReportDataWithGames>(cafeId, {
                 date_start:     shiftStart,
                 date_end:       dateEnd,
@@ -283,14 +310,59 @@ export async function apiGetShiftBreakdown(
         )
     }
 
-    if (expenseFetchPromises.length > 0) {
-        const results = await Promise.allSettled(expenseFetchPromises)
+    if (expenseFetchTasks.length > 0) {
+        const results = await throttledAllSettled(expenseFetchTasks)
         for (let j = 0; j < results.length; j++) {
             const r = results[j]
             if (r.status !== 'fulfilled' || !r.value) continue
             const expItems = r.value?.data?.income?.expense?.items
             if (Array.isArray(expItems) && expItems.length > 0) {
                 shiftExpenseItems[expenseFetchIndices[j]] = expItems
+            }
+        }
+    }
+
+    // Fetch billing logs once for the entire date range, then distribute
+    // refund items to each shift row by matching log_staff_name.
+    // This avoids N separate paginated billing log calls (one per shift).
+    const shiftRefundItems: Array<RefundItem[] | undefined> = new Array(prelimRows.length).fill(undefined)
+    const hasAnyRefunds = prelimRows.some(({ d }) => (Number(d.cash_refund) || 0) !== 0)
+
+    if (hasAnyRefunds) {
+        // When date_start === date_end (daily business-day view), the time
+        // window 06:00→05:59 spans into the next calendar day. The billingLogs
+        // API requires date_end to be the next day in this case, otherwise it
+        // returns "Time range error" (06:00 > 05:59 on the same date).
+        let blDateEnd = params.date_end
+        if (params.date_start === params.date_end) {
+            const parts = params.date_start.split('-').map(Number)
+            const nd = new Date(parts[0], parts[1] - 1, parts[2])
+            nd.setDate(nd.getDate() + 1)
+            blDateEnd = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`
+        }
+        const allRefunds = await apiGetBillingLogs(cafeId, {
+            date_start: params.date_start,
+            date_end:   blDateEnd,
+            time_start: params.time_start ?? '06:00',
+            time_end:   params.time_end   ?? '05:59',
+            event:      'TOPUP',
+        }).catch(() => [] as RefundItem[])
+
+        if (allRefunds.length > 0) {
+            // Distribute refund items to shifts by matching staff name
+            for (let i = 0; i < prelimRows.length; i++) {
+                const { d, staffName } = prelimRows[i]
+                const refunds = Number(d.cash_refund) || 0
+                if (refunds === 0) continue
+
+                const staffLower = staffName.toLowerCase()
+                const filtered = allRefunds.filter((item) => {
+                    if (!item.log_staff_name) return true
+                    return item.log_staff_name.toLowerCase() === staffLower
+                })
+                if (filtered.length > 0) {
+                    shiftRefundItems[i] = filtered
+                }
             }
         }
     }
@@ -317,6 +389,7 @@ export async function apiGetShiftBreakdown(
             center_expenses: expenses,
             total_profit:    totalProfit,
             expense_items:   expenses !== 0 ? shiftExpenseItems[idx] : undefined,
+            refund_items:    refunds !== 0 ? shiftRefundItems[idx] : undefined,
             refund_reason:   d.reason ? String(d.reason) : undefined,
         } as ShiftBreakdownRow
     })
@@ -368,9 +441,9 @@ export async function apiGetShiftStats(
 
     if (items.length === 0) return empty
 
-    // Fetch each shift detail in parallel to get the real financial fields
-    const details = await Promise.allSettled(
-        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+    // Fetch each shift detail (throttled to avoid upstream rate limits)
+    const details = await throttledAllSettled(
+        items.map((s) => () => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
     )
 
     return details.reduce<ShiftStats>((acc, result) => {
@@ -440,6 +513,94 @@ export async function apiGetCafeProducts(
     return allProducts
 }
 
+// ─── Billing Logs (Refund Items) ──────────────────────────────────────────────
+
+export async function apiGetBillingLogs(
+    cafeId: string,
+    params: {
+        date_start: string
+        date_end: string
+        time_start: string
+        time_end: string
+        event?: string
+    },
+): Promise<RefundItem[]> {
+    const cafe = getCafeById(cafeId)
+    const refundItems: RefundItem[] = []
+    let page = 1
+    let totalPages = 1
+
+    do {
+        const response = await icafeAxios.get(
+            `/cafe/${cafe.cafeId}/billingLogs`,
+            {
+                params: { ...params, page },
+                headers: { Authorization: `Bearer ${cafe.apiKey}` },
+            },
+        )
+
+        // The iCafeCloud API may nest data differently across endpoints.
+        // Try multiple structures: { data: { items: [] } }, { data: [] },
+        // or even top-level { items: [] }.
+        const body = response.data as Record<string, unknown>
+        const inner = body?.data as Record<string, unknown> | unknown[] | undefined
+
+        let entries: unknown[]
+        let paging: Record<string, unknown> | undefined
+
+        if (Array.isArray(inner)) {
+            // response: { code, message, data: [ ...entries ] }
+            entries = inner
+            paging = body?.paging_info as Record<string, unknown> | undefined
+        } else if (inner && typeof inner === 'object') {
+            const innerObj = inner as Record<string, unknown>
+            // response: { code, message, data: { items: [...], paging_info: {...} } }
+            const maybeItems = innerObj.items
+            if (Array.isArray(maybeItems)) {
+                entries = maybeItems
+            } else {
+                // No known structure — try to iterate all array-valued keys
+                entries = Object.values(innerObj).find(Array.isArray) as unknown[] ?? []
+            }
+            paging = innerObj.paging_info as Record<string, unknown> | undefined
+        } else {
+            entries = []
+        }
+
+        if (page === 1) {
+            console.log(`[BillingLogs] page ${page} response keys:`,
+                typeof body === 'object' && body ? Object.keys(body) : typeof body,
+                '| inner type:', Array.isArray(inner) ? 'array' : typeof inner,
+                '| entries found:', entries.length,
+                '| paging:', paging ? JSON.stringify(paging) : 'none')
+        }
+
+        if (entries.length === 0) break
+
+        for (const raw of entries) {
+            const entry = raw as Record<string, unknown>
+            const money = parseFloat(String(entry.log_money ?? entry.money ?? 0)) || 0
+            if (money < 0) {
+                refundItems.push({
+                    log_money: String(entry.log_money ?? entry.money ?? money),
+                    log_details: String(entry.log_details ?? entry.log_detail ?? entry.details ?? ''),
+                    log_member_account: entry.log_member_account ? String(entry.log_member_account) : undefined,
+                    log_staff_name: entry.log_staff_name ? String(entry.log_staff_name) : undefined,
+                })
+            }
+        }
+
+        if (!paging) {
+            // No paging info available – can only read the current page
+            break
+        }
+        totalPages = Number(paging.pages ?? paging.total_pages ?? 1) || 1
+        page++
+    } while (page <= totalPages)
+
+    return refundItems
+}
+
 // ─── Top Products ─────────────────────────────────────────────────────────────
 
 export async function apiGetTopProducts(
@@ -470,10 +631,10 @@ export async function apiGetTopProducts(
 
     if (!items || items.length === 0) return []
 
-    // Fetch shift details and product catalog in parallel
+    // Fetch shift details (throttled) and product catalog concurrently
     const [detailResults, catalogResult] = await Promise.all([
-        Promise.allSettled(
-            items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+        throttledAllSettled(
+            items.map((s) => () => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
         ),
         apiGetCafeProducts(cafeId).catch(() => null),
     ])
