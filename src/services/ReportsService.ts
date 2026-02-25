@@ -19,6 +19,8 @@ import type {
     PcStatusResponse,
     ReportDataWithGames,
     ExpenseItem,
+    RefundItem,
+    BillingLogResponse,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -295,6 +297,52 @@ export async function apiGetShiftBreakdown(
         }
     }
 
+    // Fetch billing logs per shift to get shift-specific refund items.
+    // Refund entries are TOPUP events with negative log_money.
+    const shiftRefundItems: Array<RefundItem[] | undefined> = new Array(prelimRows.length).fill(undefined)
+    const refundFetchIndices: number[] = []
+    const refundFetchPromises: Array<Promise<RefundItem[]>> = []
+
+    for (let i = 0; i < prelimRows.length; i++) {
+        const { d } = prelimRows[i]
+        const refunds = Number(d.cash_refund) || 0
+        if (refunds === 0) continue
+
+        const shiftStart = (d.start_time || '').split(' ')[0]
+        const shiftEnd   = (d.end_time   || '').split(' ')[0]
+        if (!shiftStart) continue
+
+        let dateEnd = shiftEnd || shiftStart
+        if (dateEnd === shiftStart) {
+            const parts = shiftStart.split('-').map(Number)
+            const nd    = new Date(parts[0], parts[1] - 1, parts[2])
+            nd.setDate(nd.getDate() + 1)
+            dateEnd = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`
+        }
+
+        refundFetchIndices.push(i)
+        refundFetchPromises.push(
+            apiGetBillingLogs(cafeId, {
+                date_start: shiftStart,
+                date_end:   dateEnd,
+                time_start: params.time_start ?? '06:00',
+                time_end:   params.time_end   ?? '05:59',
+                event:      'TOPUP',
+            }).catch(() => [] as RefundItem[]),
+        )
+    }
+
+    if (refundFetchPromises.length > 0) {
+        const results = await Promise.allSettled(refundFetchPromises)
+        for (let j = 0; j < results.length; j++) {
+            const r = results[j]
+            if (r.status !== 'fulfilled' || !r.value) continue
+            if (r.value.length > 0) {
+                shiftRefundItems[refundFetchIndices[j]] = r.value
+            }
+        }
+    }
+
     return prelimRows.map(({ d, rawId, isActive, staffName, expenses }, idx) => {
         const cash         = Number(d.cash) || 0
         const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
@@ -317,6 +365,7 @@ export async function apiGetShiftBreakdown(
             center_expenses: expenses,
             total_profit:    totalProfit,
             expense_items:   expenses !== 0 ? shiftExpenseItems[idx] : undefined,
+            refund_items:    refunds !== 0 ? shiftRefundItems[idx] : undefined,
             refund_reason:   d.reason ? String(d.reason) : undefined,
         } as ShiftBreakdownRow
     })
@@ -438,6 +487,52 @@ export async function apiGetCafeProducts(
     } while (page <= totalPages)
 
     return allProducts
+}
+
+// ─── Billing Logs (Refund Items) ──────────────────────────────────────────────
+
+export async function apiGetBillingLogs(
+    cafeId: string,
+    params: {
+        date_start: string
+        date_end: string
+        time_start: string
+        time_end: string
+        event?: string
+    },
+): Promise<RefundItem[]> {
+    const cafe = getCafeById(cafeId)
+    const refundItems: RefundItem[] = []
+    let page = 1
+    let totalPages = 1
+
+    do {
+        const response = await icafeAxios.get<BillingLogResponse>(
+            `/cafe/${cafe.cafeId}/billingLogs`,
+            {
+                params: { ...params, page },
+                headers: { Authorization: `Bearer ${cafe.apiKey}` },
+            },
+        )
+        const items = response.data?.data?.items
+        if (!items || items.length === 0) break
+
+        for (const entry of items) {
+            const amount = parseFloat(String(entry.log_money)) || 0
+            if (amount < 0) {
+                refundItems.push({
+                    log_money: String(entry.log_money),
+                    log_details: String(entry.log_details ?? ''),
+                })
+            }
+        }
+
+        const paging = response.data?.data?.paging_info
+        totalPages = paging?.pages ?? 1
+        page++
+    } while (page <= totalPages)
+
+    return refundItems
 }
 
 // ─── Top Products ─────────────────────────────────────────────────────────────

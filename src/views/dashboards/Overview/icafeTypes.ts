@@ -121,6 +121,8 @@ export type ShiftBreakdownRow = {
     total_profit: number
     /** Itemised expense entries from the API */
     expense_items?: ExpenseItem[]
+    /** Itemised refund entries from the billing logs API */
+    refund_items?: RefundItem[]
     /** Refund reason from the API */
     refund_reason?: string
 }
@@ -220,6 +222,34 @@ export type ExpenseItem = {
     log_money: string
     log_details: string
 }
+
+// ─── Refund / Billing Log Types ───────────────────────────────────────────────
+
+export type RefundItem = {
+    log_money: string
+    log_details: string
+}
+
+export type BillingLogEntry = {
+    log_money: string
+    log_details: string
+    [key: string]: unknown
+}
+
+export type BillingLogPagingInfo = {
+    total_records: number
+    pages: number
+    page: number
+    page_next: number
+    [key: string]: unknown
+}
+
+export type BillingLogData = {
+    items: BillingLogEntry[]
+    paging_info: BillingLogPagingInfo
+}
+
+export type BillingLogResponse = IcafeApiResponse<BillingLogData>
 
 export type ReportDataIncome = {
     expense?: {
