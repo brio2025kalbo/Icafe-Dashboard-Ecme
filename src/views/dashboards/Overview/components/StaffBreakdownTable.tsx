@@ -83,11 +83,18 @@ function buildRefundTooltip(items?: RefundItem[]): ReactNode {
     return (
         <div className="flex flex-col gap-1 text-xs">
             {items.map((item, i) => (
-                <div key={`${item.log_details}-${item.log_money}-${i}`} className="flex justify-between gap-3">
-                    <span>{extractRefundReason(item.log_details)}</span>
-                    <span className="font-semibold whitespace-nowrap">
-                        {'\u20B1'}{fmt(Math.abs(parseFloat(item.log_money) || 0))}
-                    </span>
+                <div key={`${item.log_details}-${item.log_money}-${i}`} className="flex flex-col">
+                    <div className="flex justify-between gap-3">
+                        <span>{extractRefundReason(item.log_details)}</span>
+                        <span className="font-semibold whitespace-nowrap">
+                            {'\u20B1'}{fmt(Math.abs(parseFloat(item.log_money) || 0))}
+                        </span>
+                    </div>
+                    {item.log_member_account && (
+                        <span className="text-gray-400 text-[10px]">
+                            Account: {item.log_member_account}
+                        </span>
+                    )}
                 </div>
             ))}
         </div>

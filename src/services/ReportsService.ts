@@ -337,7 +337,17 @@ export async function apiGetShiftBreakdown(
             const r = results[j]
             if (r.status !== 'fulfilled' || !r.value) continue
             if (r.value.length > 0) {
-                shiftRefundItems[refundFetchIndices[j]] = r.value
+                // Filter refund items by staff name so each shift row
+                // only shows refunds processed by that specific staff member.
+                const idx = refundFetchIndices[j]
+                const staffName = prelimRows[idx].staffName.toLowerCase()
+                const filtered = r.value.filter((item) => {
+                    if (!item.log_staff_name) return true // keep if no staff info
+                    return item.log_staff_name.toLowerCase() === staffName
+                })
+                if (filtered.length > 0) {
+                    shiftRefundItems[idx] = filtered
+                }
             }
         }
     }
@@ -559,6 +569,8 @@ export async function apiGetBillingLogs(
                 refundItems.push({
                     log_money: String(entry.log_money ?? entry.money ?? money),
                     log_details: String(entry.log_details ?? entry.log_detail ?? entry.details ?? ''),
+                    log_member_account: entry.log_member_account ? String(entry.log_member_account) : undefined,
+                    log_staff_name: entry.log_staff_name ? String(entry.log_staff_name) : undefined,
                 })
             }
         }

@@ -228,6 +228,8 @@ export type ExpenseItem = {
 export type RefundItem = {
     log_money: string
     log_details: string
+    log_member_account?: string
+    log_staff_name?: string
 }
 
 export type BillingLogEntry = {
