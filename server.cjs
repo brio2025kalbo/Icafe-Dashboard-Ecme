@@ -1521,10 +1521,15 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
 
         // Use a single 2-day range query to bypass the iCafe API's 3-result cap,
         // then filter client-side (matching the dashboard's apiGetBusinessDayShiftList).
+        // shift_staff_name=all is required — without it the iCafe API returns empty results.
         const shiftListResp = await fetchIcafeApi(
-            `/cafe/${cafe.icafe_cafe_id}/reports/shiftList?date_start=${report_date}&date_end=${nextDate}&time_start=00:00&time_end=23:59`
+            `/cafe/${cafe.icafe_cafe_id}/reports/shiftList?date_start=${report_date}&date_end=${nextDate}&time_start=00:00&time_end=23:59&shift_staff_name=all`
         )
         const rawShifts = (shiftListResp && shiftListResp.data) || []
+
+        if (rawShifts.length === 0) {
+            console.log(`[QB] shiftList API returned empty for cafe ${cafe.icafe_cafe_id}. Response:`, JSON.stringify(shiftListResp).substring(0, 500))
+        }
 
         // Filter: keep shifts that started on report_date (any time) or on nextDate before 06:00
         const seen = new Set()
