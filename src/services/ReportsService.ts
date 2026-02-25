@@ -329,9 +329,20 @@ export async function apiGetShiftBreakdown(
     const hasAnyRefunds = prelimRows.some(({ d }) => (Number(d.cash_refund) || 0) !== 0)
 
     if (hasAnyRefunds) {
+        // When date_start === date_end (daily business-day view), the time
+        // window 06:00→05:59 spans into the next calendar day. The billingLogs
+        // API requires date_end to be the next day in this case, otherwise it
+        // returns "Time range error" (06:00 > 05:59 on the same date).
+        let blDateEnd = params.date_end
+        if (params.date_start === params.date_end) {
+            const parts = params.date_start.split('-').map(Number)
+            const nd = new Date(parts[0], parts[1] - 1, parts[2])
+            nd.setDate(nd.getDate() + 1)
+            blDateEnd = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`
+        }
         const allRefunds = await apiGetBillingLogs(cafeId, {
             date_start: params.date_start,
-            date_end:   params.date_end,
+            date_end:   blDateEnd,
             time_start: params.time_start ?? '06:00',
             time_end:   params.time_end   ?? '05:59',
             event:      'TOPUP',
