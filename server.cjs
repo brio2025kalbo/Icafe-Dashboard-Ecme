@@ -862,6 +862,33 @@ const CACHE_TTL = {
 const cache = new Map()
 const inFlight = new Map()
 
+// ── Upstream concurrency limiter ────────────────────────────────────────────
+// Limits concurrent upstream API requests to avoid "Too Many Attempts" (507)
+// from iCafeCloud rate limiting. Requests beyond the limit wait in a queue.
+const MAX_CONCURRENT_UPSTREAM = 3
+let activeUpstream = 0
+const upstreamQueue = []
+
+function enqueueUpstream(fn) {
+    return new Promise((resolve, reject) => {
+        const run = () => {
+            activeUpstream++
+            fn().then(resolve, reject).finally(() => {
+                activeUpstream--
+                if (upstreamQueue.length > 0) {
+                    const next = upstreamQueue.shift()
+                    next()
+                }
+            })
+        }
+        if (activeUpstream < MAX_CONCURRENT_UPSTREAM) {
+            run()
+        } else {
+            upstreamQueue.push(run)
+        }
+    })
+}
+
 function getTtl(urlPath) {
     if (urlPath.includes('shiftDetail'))  return CACHE_TTL.shiftDetail
     if (urlPath.includes('shiftList'))    return CACHE_TTL.shiftList
@@ -940,8 +967,8 @@ app.use('/icafe-api', async (req, res) => {
         }
     }
 
-    console.log(`[PROXY] MISS       ${upstreamPath} → fetching upstream`)
-    const fetchPromise = fetchUpstream(targetUrl, req.headers)
+    console.log(`[PROXY] MISS       ${upstreamPath} → fetching upstream (queue: ${upstreamQueue.length}, active: ${activeUpstream}/${MAX_CONCURRENT_UPSTREAM})`)
+    const fetchPromise = enqueueUpstream(() => fetchUpstream(targetUrl, req.headers))
     inFlight.set(cacheKey, fetchPromise)
 
     try {

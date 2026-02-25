@@ -27,6 +27,32 @@ const icafeAxios = axios.create({
     timeout: 60000, // 60s for slow connections
 })
 
+// ─── Concurrency-limited Promise.allSettled ──────────────────────────────────
+// Runs at most `limit` tasks concurrently, avoiding upstream 507 rate limits.
+const DEFAULT_CONCURRENCY = 2
+
+async function throttledAllSettled<T>(
+    tasks: Array<() => Promise<T>>,
+    limit = DEFAULT_CONCURRENCY,
+): Promise<PromiseSettledResult<T>[]> {
+    const results: PromiseSettledResult<T>[] = new Array(tasks.length)
+    let idx = 0
+
+    async function worker() {
+        while (idx < tasks.length) {
+            const i = idx++
+            try {
+                results[i] = { status: 'fulfilled', value: await tasks[i]() }
+            } catch (reason) {
+                results[i] = { status: 'rejected', reason }
+            }
+        }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => worker()))
+    return results
+}
+
 function getCafeById(cafeId: string) {
     const cafe = useCafeStore.getState().cafes.find((c) => c.id === cafeId)
     if (!cafe) throw new Error(`Cafe with id "${cafeId}" not found in store.`)
@@ -219,9 +245,9 @@ export async function apiGetShiftBreakdown(
 
     if (!items || items.length === 0) return []
 
-    // Fetch shift details
-    const details = await Promise.allSettled(
-        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+    // Fetch shift details (throttled to avoid upstream rate limits)
+    const details = await throttledAllSettled(
+        items.map((s) => () => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
     )
 
     // Build preliminary rows and collect shifts that have expenses
@@ -252,7 +278,7 @@ export async function apiGetShiftBreakdown(
     // weekly/monthly/yearly views don't combine expenses across shifts.
     const shiftExpenseItems: Array<ExpenseItem[] | undefined> = new Array(prelimRows.length).fill(undefined)
     const expenseFetchIndices: number[] = []
-    const expenseFetchPromises: Array<Promise<IcafeApiResponse<ReportDataWithGames>>> = []
+    const expenseFetchTasks: Array<() => Promise<IcafeApiResponse<ReportDataWithGames>>> = []
 
     for (let i = 0; i < prelimRows.length; i++) {
         const { d, staffName, expenses } = prelimRows[i]
@@ -273,7 +299,7 @@ export async function apiGetShiftBreakdown(
         }
 
         expenseFetchIndices.push(i)
-        expenseFetchPromises.push(
+        expenseFetchTasks.push(() =>
             apiGetReportData<ReportDataWithGames>(cafeId, {
                 date_start:     shiftStart,
                 date_end:       dateEnd,
@@ -284,8 +310,8 @@ export async function apiGetShiftBreakdown(
         )
     }
 
-    if (expenseFetchPromises.length > 0) {
-        const results = await Promise.allSettled(expenseFetchPromises)
+    if (expenseFetchTasks.length > 0) {
+        const results = await throttledAllSettled(expenseFetchTasks)
         for (let j = 0; j < results.length; j++) {
             const r = results[j]
             if (r.status !== 'fulfilled' || !r.value) continue
@@ -300,7 +326,7 @@ export async function apiGetShiftBreakdown(
     // Refund entries are TOPUP events with negative log_money.
     const shiftRefundItems: Array<RefundItem[] | undefined> = new Array(prelimRows.length).fill(undefined)
     const refundFetchIndices: number[] = []
-    const refundFetchPromises: Array<Promise<RefundItem[]>> = []
+    const refundFetchTasks: Array<() => Promise<RefundItem[]>> = []
 
     for (let i = 0; i < prelimRows.length; i++) {
         const { d } = prelimRows[i]
@@ -320,7 +346,7 @@ export async function apiGetShiftBreakdown(
         }
 
         refundFetchIndices.push(i)
-        refundFetchPromises.push(
+        refundFetchTasks.push(() =>
             apiGetBillingLogs(cafeId, {
                 date_start: shiftStart,
                 date_end:   dateEnd,
@@ -331,8 +357,8 @@ export async function apiGetShiftBreakdown(
         )
     }
 
-    if (refundFetchPromises.length > 0) {
-        const results = await Promise.allSettled(refundFetchPromises)
+    if (refundFetchTasks.length > 0) {
+        const results = await throttledAllSettled(refundFetchTasks)
         for (let j = 0; j < results.length; j++) {
             const r = results[j]
             if (r.status !== 'fulfilled' || !r.value) continue
@@ -426,9 +452,9 @@ export async function apiGetShiftStats(
 
     if (items.length === 0) return empty
 
-    // Fetch each shift detail in parallel to get the real financial fields
-    const details = await Promise.allSettled(
-        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+    // Fetch each shift detail (throttled to avoid upstream rate limits)
+    const details = await throttledAllSettled(
+        items.map((s) => () => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
     )
 
     return details.reduce<ShiftStats>((acc, result) => {
@@ -616,10 +642,10 @@ export async function apiGetTopProducts(
 
     if (!items || items.length === 0) return []
 
-    // Fetch shift details and product catalog in parallel
+    // Fetch shift details (throttled) and product catalog concurrently
     const [detailResults, catalogResult] = await Promise.all([
-        Promise.allSettled(
-            items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+        throttledAllSettled(
+            items.map((s) => () => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
         ),
         apiGetCafeProducts(cafeId).catch(() => null),
     ])
