@@ -322,57 +322,35 @@ export async function apiGetShiftBreakdown(
         }
     }
 
-    // Fetch billing logs per shift to get shift-specific refund items.
-    // Refund entries are TOPUP events with negative log_money.
+    // Fetch billing logs once for the entire date range, then distribute
+    // refund items to each shift row by matching log_staff_name.
+    // This avoids N separate paginated billing log calls (one per shift).
     const shiftRefundItems: Array<RefundItem[] | undefined> = new Array(prelimRows.length).fill(undefined)
-    const refundFetchIndices: number[] = []
-    const refundFetchTasks: Array<() => Promise<RefundItem[]>> = []
+    const hasAnyRefunds = prelimRows.some(({ d }) => (Number(d.cash_refund) || 0) !== 0)
 
-    for (let i = 0; i < prelimRows.length; i++) {
-        const { d } = prelimRows[i]
-        const refunds = Number(d.cash_refund) || 0
-        if (refunds === 0) continue
+    if (hasAnyRefunds) {
+        const allRefunds = await apiGetBillingLogs(cafeId, {
+            date_start: params.date_start,
+            date_end:   params.date_end,
+            time_start: params.time_start ?? '06:00',
+            time_end:   params.time_end   ?? '05:59',
+            event:      'TOPUP',
+        }).catch(() => [] as RefundItem[])
 
-        const shiftStart = (d.start_time || '').split(' ')[0]
-        const shiftEnd   = (d.end_time   || '').split(' ')[0]
-        if (!shiftStart) continue
+        if (allRefunds.length > 0) {
+            // Distribute refund items to shifts by matching staff name
+            for (let i = 0; i < prelimRows.length; i++) {
+                const { d, staffName } = prelimRows[i]
+                const refunds = Number(d.cash_refund) || 0
+                if (refunds === 0) continue
 
-        let dateEnd = shiftEnd || shiftStart
-        if (dateEnd === shiftStart) {
-            const parts = shiftStart.split('-').map(Number)
-            const nd    = new Date(parts[0], parts[1] - 1, parts[2])
-            nd.setDate(nd.getDate() + 1)
-            dateEnd = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`
-        }
-
-        refundFetchIndices.push(i)
-        refundFetchTasks.push(() =>
-            apiGetBillingLogs(cafeId, {
-                date_start: shiftStart,
-                date_end:   dateEnd,
-                time_start: params.time_start ?? '06:00',
-                time_end:   params.time_end   ?? '05:59',
-                event:      'TOPUP',
-            }).catch(() => [] as RefundItem[]),
-        )
-    }
-
-    if (refundFetchTasks.length > 0) {
-        const results = await throttledAllSettled(refundFetchTasks)
-        for (let j = 0; j < results.length; j++) {
-            const r = results[j]
-            if (r.status !== 'fulfilled' || !r.value) continue
-            if (r.value.length > 0) {
-                // Filter refund items by staff name so each shift row
-                // only shows refunds processed by that specific staff member.
-                const idx = refundFetchIndices[j]
-                const staffName = prelimRows[idx].staffName.toLowerCase()
-                const filtered = r.value.filter((item) => {
-                    if (!item.log_staff_name) return true // keep if no staff info
-                    return item.log_staff_name.toLowerCase() === staffName
+                const staffLower = staffName.toLowerCase()
+                const filtered = allRefunds.filter((item) => {
+                    if (!item.log_staff_name) return true
+                    return item.log_staff_name.toLowerCase() === staffLower
                 })
                 if (filtered.length > 0) {
-                    shiftRefundItems[idx] = filtered
+                    shiftRefundItems[i] = filtered
                 }
             }
         }
