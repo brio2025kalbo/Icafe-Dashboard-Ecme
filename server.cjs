@@ -1937,7 +1937,7 @@ app.post('/api/quickbooks/schedule', requireAuth, requireAdmin, async (req, res)
 app.get('/api/quickbooks/history', requireAuth, requireAdmin, async (req, res) => {
     try {
         const [rows] = await pool.execute(
-            'SELECT id, cafe_id, cafe_name, report_date, sent_at, status FROM qb_send_history ORDER BY sent_at DESC LIMIT 100'
+            'SELECT id, cafe_id, cafe_name, DATE_FORMAT(report_date, "%Y-%m-%d") AS report_date, sent_at, status FROM qb_send_history ORDER BY sent_at DESC LIMIT 100'
         )
         res.json(rows)
     } catch (e) {
