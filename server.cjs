@@ -1500,35 +1500,49 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
         dateObj.setDate(dateObj.getDate() + 1)
         const nextDate = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`
 
-        // Fetch shift list for current day (6:00 AM to 23:59) and next day (00:00 to 05:59)
-        const icafeApiBase = 'https://api.icafecloud.com/api/v2'
         const authHeader = `Bearer ${cafe.api_key}`
 
+        // Helper: fetch from the iCafe API using the upstream proxy logic (handles gzip/brotli)
         async function fetchIcafeApi(urlPath) {
-            const url = icafeApiBase + urlPath
-            const result = await qbHttpsRequest(url, {
-                method: 'GET',
-                headers: { 'Authorization': authHeader, 'Accept': 'application/json' },
-            })
-            if (result.statusCode !== 200) {
-                console.error(`[QB] iCafe API error: ${result.statusCode}`, result.body)
+            const url = 'https://api.icafecloud.com/api/v2' + urlPath
+            try {
+                const result = await fetchUpstream(url, { authorization: authHeader })
+                if (result.statusCode !== 200) {
+                    console.error(`[QB] iCafe API error: ${result.statusCode}`, typeof result.body === 'string' ? result.body.substring(0, 200) : '')
+                    return null
+                }
+                const bodyStr = typeof result.body === 'string' ? result.body : result.body.toString('utf8')
+                return JSON.parse(bodyStr)
+            } catch (err) {
+                console.error(`[QB] iCafe API fetch error:`, err.message)
                 return null
             }
-            try { return JSON.parse(result.body) } catch { return null }
         }
 
-        // Two queries for a business day: shifts starting 6am-midnight, then midnight-6am next day
-        const shiftList1 = await fetchIcafeApi(
-            `/cafe/${cafe.icafe_cafe_id}/reports/shiftList?date_start=${report_date}&date_end=${report_date}&time_start=06:00&time_end=23:59`
+        // Use a single 2-day range query to bypass the iCafe API's 3-result cap,
+        // then filter client-side (matching the dashboard's apiGetBusinessDayShiftList).
+        const shiftListResp = await fetchIcafeApi(
+            `/cafe/${cafe.icafe_cafe_id}/reports/shiftList?date_start=${report_date}&date_end=${nextDate}&time_start=00:00&time_end=23:59`
         )
-        const shiftList2 = await fetchIcafeApi(
-            `/cafe/${cafe.icafe_cafe_id}/reports/shiftList?date_start=${nextDate}&date_end=${nextDate}&time_start=00:00&time_end=05:59`
-        )
+        const rawShifts = (shiftListResp && shiftListResp.data) || []
 
-        const allShifts = [
-            ...((shiftList1 && shiftList1.data) || []),
-            ...((shiftList2 && shiftList2.data) || []),
-        ]
+        // Filter: keep shifts that started on report_date (any time) or on nextDate before 06:00
+        const seen = new Set()
+        const allShifts = []
+        for (const item of rawShifts) {
+            const startTime = String(item.shift_start_time || '')
+            const [startDate, startTimePart = ''] = startTime.split(' ')
+            const id = item.shift_id || item.id
+            if (seen.has(id)) continue
+
+            if (startDate === report_date) {
+                seen.add(id); allShifts.push(item)
+            } else if (startDate === nextDate && startTimePart < '06:00:00') {
+                seen.add(id); allShifts.push(item)
+            }
+        }
+
+        console.log(`[QB] Found ${allShifts.length} shifts for ${cafeName} on ${report_date} (raw: ${rawShifts.length})`)
 
         // Aggregate daily totals from shift details
         let totalTopUps = 0
@@ -1539,10 +1553,14 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
         for (const shift of allShifts) {
             const shiftId = shift.shift_id || shift.id
             if (!shiftId) continue
+            // Use path parameter (not query param) for shiftDetail — matches the iCafe API
             const detail = await fetchIcafeApi(
-                `/cafe/${cafe.icafe_cafe_id}/reports/shiftDetail?shift_id=${shiftId}`
+                `/cafe/${cafe.icafe_cafe_id}/reports/shiftDetail/${shiftId}`
             )
-            if (!detail || !detail.data) continue
+            if (!detail || !detail.data) {
+                console.log(`[QB] No detail for shift ${shiftId}`)
+                continue
+            }
             const d = detail.data
 
             const cash = Number(d.cash) || 0
@@ -1557,7 +1575,11 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
             totalShopSales += shopSales
             totalRefunds += refunds
             totalExpenses += expenses
+
+            console.log(`[QB] Shift ${shiftId}: topUps=${topUps.toFixed(2)}, shopSales=${shopSales.toFixed(2)}, refunds=${refunds.toFixed(2)}, expenses=${expenses.toFixed(2)}`)
         }
+
+        console.log(`[QB] Totals for ${cafeName} on ${report_date}: topUps=${totalTopUps.toFixed(2)}, shopSales=${totalShopSales.toFixed(2)}, refunds=${totalRefunds.toFixed(2)}, expenses=${totalExpenses.toFixed(2)}`)
 
         // ── Build QuickBooks JournalEntry ─────────────────────────────────────
         // Debit lines: income accounts (Top-ups, Shop Sales)
