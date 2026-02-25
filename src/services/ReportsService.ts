@@ -8,6 +8,7 @@ import type {
     IcafeApiResponse,
     ShiftListResponse,
     ShiftDetailResponse,
+    ShiftDetailData,
     ShiftListParams,
     ShiftStats,
     ShiftBreakdownRow,
@@ -16,6 +17,8 @@ import type {
     IcafeProductsResponse,
     CustomerAnalysisResponse,
     PcStatusResponse,
+    ReportDataWithGames,
+    ExpenseItem,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -215,15 +218,84 @@ export async function apiGetShiftBreakdown(
 
     if (!items || items.length === 0) return []
 
+    // Fetch shift details
     const details = await Promise.allSettled(
         items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
     )
 
-    return details.reduce<ShiftBreakdownRow[]>((acc, result, idx) => {
-        if (result.status !== 'fulfilled') return acc
-        const d = result.value.data
-        if (!d) return acc
+    // Build preliminary rows and collect shifts that have expenses
+    const prelimRows: Array<{
+        d: ShiftDetailData
+        rawId: string | number
+        isActive: boolean
+        staffName: string
+        expenses: number
+    }> = []
 
+    for (let idx = 0; idx < details.length; idx++) {
+        const result = details[idx]
+        if (result.status !== 'fulfilled') continue
+        const d = result.value.data
+        if (!d) continue
+
+        const rawId    = items![idx].shift_id ?? items![idx].id
+        const isActive = Number(rawId) < 0
+        const staffName = d.staff_name || String(items![idx].shift_staff_name ?? '')
+        const expenses  = Number(d.center_expenses) || 0
+
+        prelimRows.push({ d, rawId, isActive, staffName, expenses })
+    }
+
+    // Fetch reportData per shift to get shift-specific expense items.
+    // We scope each call to the shift's own start/end dates so that
+    // weekly/monthly/yearly views don't combine expenses across shifts.
+    const shiftExpenseItems: Array<ExpenseItem[] | undefined> = new Array(prelimRows.length).fill(undefined)
+    const expenseFetchIndices: number[] = []
+    const expenseFetchPromises: Array<Promise<IcafeApiResponse<ReportDataWithGames>>> = []
+
+    for (let i = 0; i < prelimRows.length; i++) {
+        const { d, staffName, expenses } = prelimRows[i]
+        if (expenses === 0 || !staffName) continue
+
+        // Extract dates from the shift's start_time / end_time
+        const shiftStart = (d.start_time || '').split(' ')[0]
+        const shiftEnd   = (d.end_time   || '').split(' ')[0]
+        if (!shiftStart) continue
+
+        // For the reportData API the end date must be at least the next day
+        let dateEnd = shiftEnd || shiftStart
+        if (dateEnd === shiftStart) {
+            const parts = shiftStart.split('-').map(Number)
+            const nd    = new Date(parts[0], parts[1] - 1, parts[2])
+            nd.setDate(nd.getDate() + 1)
+            dateEnd = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`
+        }
+
+        expenseFetchIndices.push(i)
+        expenseFetchPromises.push(
+            apiGetReportData<ReportDataWithGames>(cafeId, {
+                date_start:     shiftStart,
+                date_end:       dateEnd,
+                time_start:     params.time_start ?? '06:00',
+                time_end:       params.time_end   ?? '05:59',
+                log_staff_name: staffName,
+            }).catch(() => null as unknown as IcafeApiResponse<ReportDataWithGames>),
+        )
+    }
+
+    if (expenseFetchPromises.length > 0) {
+        const results = await Promise.allSettled(expenseFetchPromises)
+        for (let j = 0; j < results.length; j++) {
+            const r = results[j]
+            if (r.status !== 'fulfilled' || !r.value) continue
+            const expItems = r.value?.data?.income?.expense?.items
+            if (Array.isArray(expItems) && expItems.length > 0) {
+                shiftExpenseItems[expenseFetchIndices[j]] = expItems
+            }
+        }
+    }
+
+    return prelimRows.map(({ d, rawId, isActive, staffName, expenses }, idx) => {
         const cash         = Number(d.cash) || 0
         const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
         const shopSales    = shopSalesArr.reduce((sum: number, item: { cash?: string | number }) =>
@@ -231,17 +303,11 @@ export async function apiGetShiftBreakdown(
         const digitalTopups = (Number(d.qr_topup) || 0) + (Number(d.credit_card) || 0)
         const topUps        = (cash - shopSales) + digitalTopups
         const refunds       = Number(d.cash_refund)     || 0
-        const expenses      = Number(d.center_expenses) || 0
         const totalProfit   = Number(d.total_amount)    || 0
-        // Active shifts have a negative shift_id in the shift list.
-        // The shift detail API returns the current time as end_time for active
-        // shifts (not '-'), so we rely on the shift_id sign to detect them.
-        const rawId    = items![idx].shift_id ?? items![idx].id
-        const isActive = Number(rawId) < 0
 
-        acc.push({
+        return {
             shift_id:        rawId,
-            staff_name:      d.staff_name  || String(items![idx].shift_staff_name ?? ''),
+            staff_name:      staffName,
             start_time:      d.start_time  || '',
             end_time:        isActive ? '-' : (d.end_time || '-'),
             is_active:       isActive,
@@ -250,9 +316,10 @@ export async function apiGetShiftBreakdown(
             refunds,
             center_expenses: expenses,
             total_profit:    totalProfit,
-        })
-        return acc
-    }, [])
+            expense_items:   expenses !== 0 ? shiftExpenseItems[idx] : undefined,
+            refund_reason:   d.reason ? String(d.reason) : undefined,
+        } as ShiftBreakdownRow
+    })
 }
 
 // ─── Aggregated Stats ─────────────────────────────────────────────────────────

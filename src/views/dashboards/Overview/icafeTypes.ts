@@ -119,6 +119,10 @@ export type ShiftBreakdownRow = {
     refunds: number
     center_expenses: number
     total_profit: number
+    /** Itemised expense entries from the API */
+    expense_items?: ExpenseItem[]
+    /** Refund reason from the API */
+    refund_reason?: string
 }
 
 export type PeriodType = 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -210,9 +214,25 @@ export type PcSpendItem = {
     total_spend: string
 }
 
+// ─── Report Data (Expense) Types ──────────────────────────────────────────────
+
+export type ExpenseItem = {
+    log_money: string
+    log_details: string
+}
+
+export type ReportDataIncome = {
+    expense?: {
+        amount: number
+        items?: ExpenseItem[]
+    }
+    [key: string]: unknown
+}
+
 export type ReportDataWithGames = {
     game?: GameItem[]
     top_five_pc_spend?: PcSpendItem[]
+    income?: ReportDataIncome
     [key: string]: unknown
 }
 

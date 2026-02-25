@@ -1,5 +1,7 @@
 import useCountUp from '@/hooks/useCountUp'
-import type { ShiftBreakdownRow } from '../icafeTypes'
+import Tooltip from '@/components/ui/Tooltip'
+import type { ShiftBreakdownRow, ExpenseItem } from '../icafeTypes'
+import type { ReactNode } from 'react'
 
 type Props = {
     rows: ShiftBreakdownRow[]
@@ -21,15 +23,46 @@ function fmtTime(t: string): string {
 const AnimatedCell = ({
     value,
     className,
+    tooltip,
 }: {
     value: number
     className?: string
+    tooltip?: string | ReactNode
 }) => {
     const animated = useCountUp(value)
+    const content = <>{'\u20B1'}{fmt(animated)}</>
+    if (tooltip) {
+        return (
+            <td className={`px-3 py-2 text-right whitespace-nowrap ${className ?? ''}`}>
+                <Tooltip title={tooltip} placement="top">
+                    <span className="cursor-pointer underline decoration-dotted">
+                        {content}
+                    </span>
+                </Tooltip>
+            </td>
+        )
+    }
     return (
         <td className={`px-3 py-2 text-right whitespace-nowrap ${className ?? ''}`}>
-            {'\u20B1'}{fmt(animated)}
+            {content}
         </td>
+    )
+}
+
+/** Build a ReactNode tooltip showing each expense item on its own line */
+function buildExpenseTooltip(items?: ExpenseItem[]): ReactNode {
+    if (!items || items.length === 0) return undefined
+    return (
+        <div className="flex flex-col gap-1 text-xs">
+            {items.map((item, i) => (
+                <div key={`${item.log_details}-${item.log_money}-${i}`} className="flex justify-between gap-3">
+                    <span>{item.log_details}</span>
+                    <span className="font-semibold whitespace-nowrap">
+                        {'\u20B1'}{fmt(Math.abs(parseFloat(item.log_money) || 0))}
+                    </span>
+                </div>
+            ))}
+        </div>
     )
 }
 
@@ -91,10 +124,12 @@ const StaffBreakdownTable = ({ rows, loading }: Props) => {
                             <AnimatedCell
                                 value={row.refunds}
                                 className={row.refunds < 0 ? 'text-red-500' : 'text-gray-700 dark:text-gray-300'}
+                                tooltip={row.refund_reason || `Refund: ${'\u20B1'}${fmt(Math.abs(row.refunds))}`}
                             />
                             <AnimatedCell
                                 value={row.center_expenses}
                                 className={row.center_expenses < 0 ? 'text-orange-500' : 'text-gray-700 dark:text-gray-300'}
+                                tooltip={buildExpenseTooltip(row.expense_items) || `Expense: ${'\u20B1'}${fmt(Math.abs(row.center_expenses))}`}
                             />
                             <AnimatedCell
                                 value={row.total_profit}

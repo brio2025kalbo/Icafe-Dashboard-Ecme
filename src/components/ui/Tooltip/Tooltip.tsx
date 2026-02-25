@@ -48,7 +48,7 @@ const Tooltip = (props: TooltipProps) => {
     const defaultTooltipClass = `tooltip ${tooltipColor.background}`
 
     const { refs, floatingStyles, context } = useFloating({
-        open: isOpen,
+        open: tooltipOpen,
         onOpenChange: (open) => {
             if (!disabled) {
                 setTooltipOpen(open)
