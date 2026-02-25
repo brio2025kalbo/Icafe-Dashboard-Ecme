@@ -1567,6 +1567,10 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
         let totalRefunds = 0
         let totalExpenses = 0
 
+        // Collect itemized expenses and refunds across all shifts
+        const allExpenseItems = []   // { log_money, log_details, staff_name }
+        const allRefundItems = []    // { log_money, log_details, log_member_account }
+
         for (const shift of allShifts) {
             const shiftId = shift.shift_id || shift.id
             if (!shiftId) continue
@@ -1587,6 +1591,7 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
             const topUps = (cash - shopSales) + digitalTopups
             const refunds = Number(d.cash_refund) || 0
             const expenses = Number(d.center_expenses) || 0
+            const staffName = d.staff_name || String(shift.shift_staff_name || '')
 
             totalTopUps += topUps
             totalShopSales += shopSales
@@ -1594,6 +1599,59 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
             totalExpenses += expenses
 
             console.log(`[QB] Shift ${shiftId}: topUps=${topUps.toFixed(2)}, shopSales=${shopSales.toFixed(2)}, refunds=${refunds.toFixed(2)}, expenses=${expenses.toFixed(2)}`)
+
+            // Fetch itemized expense details from reportData API
+            if (expenses !== 0 && staffName) {
+                const shiftStart = (d.start_time || '').split(' ')[0]
+                const shiftEnd = (d.end_time || '').split(' ')[0]
+                if (shiftStart) {
+                    let dateEnd = shiftEnd || shiftStart
+                    if (dateEnd === shiftStart) {
+                        const parts = shiftStart.split('-').map(Number)
+                        const nd = new Date(parts[0], parts[1] - 1, parts[2])
+                        nd.setDate(nd.getDate() + 1)
+                        dateEnd = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`
+                    }
+                    const reportData = await fetchIcafeApi(
+                        `/cafe/${cafe.icafe_cafe_id}/reports/reportData?date_start=${shiftStart}&date_end=${dateEnd}&time_start=06:00&time_end=05:59&log_staff_name=${encodeURIComponent(staffName)}`
+                    )
+                    const expItems = reportData?.data?.income?.expense?.items
+                    if (Array.isArray(expItems) && expItems.length > 0) {
+                        for (const item of expItems) {
+                            allExpenseItems.push({
+                                log_money: String(item.log_money || '0'),
+                                log_details: String(item.log_details || ''),
+                                staff_name: staffName,
+                            })
+                        }
+                        console.log(`[QB] Shift ${shiftId}: found ${expItems.length} expense item(s)`)
+                    }
+                }
+            }
+        }
+
+        // Fetch itemized refund details from billingLogs API
+        if (totalRefunds !== 0) {
+            let blDateEnd = nextDate
+            const blUrl = `/cafe/${cafe.icafe_cafe_id}/billingLogs?date_start=${report_date}&date_end=${blDateEnd}&time_start=06:00&time_end=05:59&event=TOPUP`
+            const blResp = await fetchIcafeApi(blUrl)
+            const blData = blResp?.data
+            const entries = Array.isArray(blData) ? blData
+                : (blData && typeof blData === 'object' && Array.isArray(blData.items)) ? blData.items
+                : []
+            for (const entry of entries) {
+                const money = parseFloat(String(entry.log_money || entry.money || 0)) || 0
+                if (money < 0) {
+                    allRefundItems.push({
+                        log_money: String(entry.log_money || entry.money || money),
+                        log_details: String(entry.log_details || entry.log_detail || entry.details || ''),
+                        log_member_account: entry.log_member_account ? String(entry.log_member_account) : '',
+                    })
+                }
+            }
+            if (allRefundItems.length > 0) {
+                console.log(`[QB] Found ${allRefundItems.length} refund item(s) from billing logs`)
+            }
         }
 
         console.log(`[QB] Totals for ${cafeName} on ${report_date}: topUps=${totalTopUps.toFixed(2)}, shopSales=${totalShopSales.toFixed(2)}, refunds=${totalRefunds.toFixed(2)}, expenses=${totalExpenses.toFixed(2)}`)
@@ -1635,28 +1693,70 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
             })
         }
 
+        // Refund lines — itemized breakdowns when available, aggregated fallback
         if (totalRefunds !== 0 && mappings.refunds_account) {
-            lines.push({
-                Description: `Refunds - ${cafeName} - ${report_date}`,
-                Amount: Math.round(Math.abs(totalRefunds) * 100) / 100,
-                DetailType: 'JournalEntryLineDetail',
-                JournalEntryLineDetail: {
-                    PostingType: 'Debit',
-                    AccountRef: { value: mappings.refunds_account },
-                },
-            })
+            if (allRefundItems.length > 0) {
+                for (const item of allRefundItems) {
+                    const amount = Math.round(Math.abs(parseFloat(item.log_money) || 0) * 100) / 100
+                    if (amount === 0) continue
+                    const desc = item.log_details
+                        ? `Refund: ${item.log_details}${item.log_member_account ? ' (' + item.log_member_account + ')' : ''} - ${cafeName} - ${report_date}`
+                        : `Refund${item.log_member_account ? ' (' + item.log_member_account + ')' : ''} - ${cafeName} - ${report_date}`
+                    lines.push({
+                        Description: desc,
+                        Amount: amount,
+                        DetailType: 'JournalEntryLineDetail',
+                        JournalEntryLineDetail: {
+                            PostingType: 'Debit',
+                            AccountRef: { value: mappings.refunds_account },
+                        },
+                    })
+                }
+            } else {
+                // Fallback: single aggregated line
+                lines.push({
+                    Description: `Refunds - ${cafeName} - ${report_date}`,
+                    Amount: Math.round(Math.abs(totalRefunds) * 100) / 100,
+                    DetailType: 'JournalEntryLineDetail',
+                    JournalEntryLineDetail: {
+                        PostingType: 'Debit',
+                        AccountRef: { value: mappings.refunds_account },
+                    },
+                })
+            }
         }
 
+        // Expense lines — itemized breakdowns when available, aggregated fallback
         if (totalExpenses !== 0 && mappings.center_expenses_account) {
-            lines.push({
-                Description: `Center Expenses - ${cafeName} - ${report_date}`,
-                Amount: Math.round(Math.abs(totalExpenses) * 100) / 100,
-                DetailType: 'JournalEntryLineDetail',
-                JournalEntryLineDetail: {
-                    PostingType: 'Debit',
-                    AccountRef: { value: mappings.center_expenses_account },
-                },
-            })
+            if (allExpenseItems.length > 0) {
+                for (const item of allExpenseItems) {
+                    const amount = Math.round(Math.abs(parseFloat(item.log_money) || 0) * 100) / 100
+                    if (amount === 0) continue
+                    const desc = item.log_details
+                        ? `Expense: ${item.log_details} (${item.staff_name}) - ${cafeName} - ${report_date}`
+                        : `Expense (${item.staff_name}) - ${cafeName} - ${report_date}`
+                    lines.push({
+                        Description: desc,
+                        Amount: amount,
+                        DetailType: 'JournalEntryLineDetail',
+                        JournalEntryLineDetail: {
+                            PostingType: 'Debit',
+                            AccountRef: { value: mappings.center_expenses_account },
+                        },
+                    })
+                }
+            } else {
+                // Fallback: single aggregated line
+                lines.push({
+                    Description: `Center Expenses - ${cafeName} - ${report_date}`,
+                    Amount: Math.round(Math.abs(totalExpenses) * 100) / 100,
+                    DetailType: 'JournalEntryLineDetail',
+                    JournalEntryLineDetail: {
+                        PostingType: 'Debit',
+                        AccountRef: { value: mappings.center_expenses_account },
+                    },
+                })
+            }
         }
 
         if (lines.length === 0) {
