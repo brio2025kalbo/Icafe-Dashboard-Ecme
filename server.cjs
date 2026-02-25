@@ -1623,10 +1623,10 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
             })
         }
 
-        if (totalRefunds > 0 && mappings.refunds_account) {
+        if (totalRefunds !== 0 && mappings.refunds_account) {
             lines.push({
                 Description: `Refunds - ${cafeName} - ${report_date}`,
-                Amount: Math.round(totalRefunds * 100) / 100,
+                Amount: Math.round(Math.abs(totalRefunds) * 100) / 100,
                 DetailType: 'JournalEntryLineDetail',
                 JournalEntryLineDetail: {
                     PostingType: 'Debit',
@@ -1635,7 +1635,7 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
             })
         }
 
-        if (totalExpenses > 0 && mappings.center_expenses_account) {
+        if (totalExpenses !== 0 && mappings.center_expenses_account) {
             lines.push({
                 Description: `Center Expenses - ${cafeName} - ${report_date}`,
                 Amount: Math.round(Math.abs(totalExpenses) * 100) / 100,
