@@ -2030,20 +2030,20 @@ async function runScheduledQBReports() {
         // Already ran for this date?
         if (schedule.last_run_date === reportDate) return
 
-        // Determine if it's time to run
+        // Determine if it's time to run.
+        // Use >= comparison so we don't miss the window if setInterval
+        // doesn't tick at the exact minute. Once run, last_run_date
+        // prevents re-runs for the same reportDate.
         let shouldRun = false
         const schedType = schedule.schedule_type
         const schedTime = schedule.schedule_time || '06:00'
 
         if (schedType === 'daily_at_time') {
-            // Run if current Manila time matches the configured time (within the same minute)
-            shouldRun = (currentTime === schedTime)
+            shouldRun = (currentTime >= schedTime)
         } else if (schedType === 'after_business_day') {
-            // Run at 6:00 AM Manila time (business day ends at 6 AM)
-            shouldRun = (currentTime === '06:00')
+            shouldRun = (currentTime >= '06:00')
         } else if (schedType === 'after_last_shift') {
-            // Run at 6:00 AM Manila time (typical last shift end)
-            shouldRun = (currentTime === '06:00')
+            shouldRun = (currentTime >= '06:00')
         }
 
         if (!shouldRun) return
@@ -2105,6 +2105,9 @@ async function runScheduledQBReports() {
 
 // Run the scheduler check every 60 seconds
 setInterval(runScheduledQBReports, 60 * 1000)
+// Also run once on startup (after a short delay for DB to be ready)
+setTimeout(runScheduledQBReports, 5000)
+console.log('[QB-Scheduler] Initialized — checking every 60s (Asia/Manila timezone)')
 
 // ── Serve the Vite production build (only when build/ exists) ───────────────
 const buildDir = path.join(__dirname, 'build')
