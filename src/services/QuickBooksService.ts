@@ -12,6 +12,7 @@ export async function apiSaveQBSettings<T>(data: {
     qb_client_id: string
     qb_client_secret: string
     qb_redirect_uri: string
+    qb_environment: string
 }) {
     return ApiService.fetchDataWithAxios<T>({
         url: '/quickbooks/settings',

@@ -30,6 +30,7 @@ type QBSettings = {
     qb_client_id: string
     qb_client_secret: string
     qb_redirect_uri: string
+    qb_environment: string
     is_connected: boolean
     realm_id: string
 }
@@ -81,6 +82,7 @@ function ConnectionSettingsCard() {
     const [clientId, setClientId] = useState('')
     const [clientSecret, setClientSecret] = useState('')
     const [redirectUri, setRedirectUri] = useState('')
+    const [environment, setEnvironment] = useState('sandbox')
     const [saving, setSaving] = useState(false)
     const [connecting, setConnecting] = useState(false)
 
@@ -89,6 +91,7 @@ function ConnectionSettingsCard() {
             setClientId(data.qb_client_id || '')
             setClientSecret(data.qb_client_secret || '')
             setRedirectUri(data.qb_redirect_uri || '')
+            setEnvironment(data.qb_environment || 'sandbox')
         }
     }, [data])
 
@@ -124,6 +127,7 @@ function ConnectionSettingsCard() {
                 qb_client_id: clientId,
                 qb_client_secret: clientSecret,
                 qb_redirect_uri: redirectUri,
+                qb_environment: environment,
             })
             mutate('/quickbooks/settings')
             toast.push(
@@ -217,6 +221,28 @@ function ConnectionSettingsCard() {
                         type="password"
                         onChange={(e) =>
                             setClientSecret((e.target as HTMLInputElement).value)
+                        }
+                    />
+                </div>
+                <div>
+                    <label className="block text-sm font-medium mb-1">
+                        Environment
+                    </label>
+                    <Select
+                        placeholder="Select environment"
+                        options={[
+                            { value: 'sandbox', label: 'Sandbox' },
+                            { value: 'production', label: 'Production' },
+                        ]}
+                        value={
+                            environment === 'production'
+                                ? { value: 'production', label: 'Production' }
+                                : { value: 'sandbox', label: 'Sandbox' }
+                        }
+                        onChange={(opt) =>
+                            setEnvironment(
+                                (opt as SelectOption)?.value || 'sandbox',
+                            )
                         }
                     />
                 </div>

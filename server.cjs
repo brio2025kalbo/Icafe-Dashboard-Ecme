@@ -108,6 +108,7 @@ async function initDb() {
                 qb_client_id     VARCHAR(500) NOT NULL DEFAULT '',
                 qb_client_secret VARCHAR(500) NOT NULL DEFAULT '',
                 qb_redirect_uri  VARCHAR(500) NOT NULL DEFAULT '',
+                qb_environment   VARCHAR(20)  NOT NULL DEFAULT 'sandbox',
                 is_connected     TINYINT(1)   NOT NULL DEFAULT 0,
                 access_token     TEXT         NULL,
                 refresh_token    TEXT         NULL,
@@ -117,8 +118,9 @@ async function initDb() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
 
-        // Migrate: add OAuth columns if they don't exist yet
+        // Migrate: add OAuth and environment columns if they don't exist yet
         for (const col of [
+            { name: 'qb_environment',   def: "VARCHAR(20) NOT NULL DEFAULT 'sandbox' AFTER qb_redirect_uri" },
             { name: 'access_token',     def: 'TEXT NULL AFTER is_connected' },
             { name: 'refresh_token',    def: 'TEXT NULL AFTER access_token' },
             { name: 'realm_id',         def: "VARCHAR(100) NULL AFTER refresh_token" },
@@ -1087,8 +1089,13 @@ app.get('/api/dashboard/ecommerce', (req, res) => {
 const QB_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
 const QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
 const QB_REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke'
-const QB_API_BASE = 'https://quickbooks.api.intuit.com/v3/company'
+const QB_API_BASE_SANDBOX = 'https://sandbox-quickbooks.api.intuit.com/v3/company'
+const QB_API_BASE_PRODUCTION = 'https://quickbooks.api.intuit.com/v3/company'
 const QB_SCOPE = 'com.intuit.quickbooks.accounting'
+
+function getQBApiBase(environment) {
+    return environment === 'production' ? QB_API_BASE_PRODUCTION : QB_API_BASE_SANDBOX
+}
 
 // Helper: ensure single-row config tables have a row
 async function ensureQBRow(table) {
@@ -1174,6 +1181,7 @@ app.get('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res) 
             qb_client_id: row.qb_client_id,
             qb_client_secret: row.qb_client_secret,
             qb_redirect_uri: row.qb_redirect_uri,
+            qb_environment: row.qb_environment || 'sandbox',
             is_connected: !!row.is_connected,
             realm_id: row.realm_id || '',
         })
@@ -1185,12 +1193,12 @@ app.get('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res) 
 
 // POST /api/quickbooks/settings
 app.post('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res) => {
-    const { qb_client_id, qb_client_secret, qb_redirect_uri } = req.body || {}
+    const { qb_client_id, qb_client_secret, qb_redirect_uri, qb_environment } = req.body || {}
     try {
         await ensureQBRow('qb_settings')
         await pool.execute(
-            'UPDATE qb_settings SET qb_client_id=?, qb_client_secret=?, qb_redirect_uri=? ORDER BY id LIMIT 1',
-            [qb_client_id || '', qb_client_secret || '', qb_redirect_uri || '']
+            'UPDATE qb_settings SET qb_client_id=?, qb_client_secret=?, qb_redirect_uri=?, qb_environment=? ORDER BY id LIMIT 1',
+            [qb_client_id || '', qb_client_secret || '', qb_redirect_uri || '', qb_environment === 'production' ? 'production' : 'sandbox']
         )
         await logActivity(req.user.id, 'qb_settings_update', 'QuickBooks settings updated', getIp(req))
         res.json({ ok: true })
@@ -1333,7 +1341,8 @@ app.get('/api/quickbooks/accounts', requireAuth, requireAdmin, async (req, res) 
 
         // Query the Chart of Accounts from QuickBooks
         const query = encodeURIComponent("SELECT * FROM Account WHERE Active = true ORDERBY Name")
-        const url = `${QB_API_BASE}/${settings.realm_id}/query?query=${query}&minorversion=65`
+        const apiBase = getQBApiBase(settings.qb_environment)
+        const url = `${apiBase}/${settings.realm_id}/query?query=${query}&minorversion=65`
 
         const result = await qbHttpsRequest(url, {
             method: 'GET',
