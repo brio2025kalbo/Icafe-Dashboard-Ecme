@@ -109,9 +109,30 @@ async function initDb() {
                 qb_client_secret VARCHAR(500) NOT NULL DEFAULT '',
                 qb_redirect_uri  VARCHAR(500) NOT NULL DEFAULT '',
                 is_connected     TINYINT(1)   NOT NULL DEFAULT 0,
+                access_token     TEXT         NULL,
+                refresh_token    TEXT         NULL,
+                realm_id         VARCHAR(100) NULL,
+                token_expires_at DATETIME     NULL,
                 updated_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
+
+        // Migrate: add OAuth columns if they don't exist yet
+        for (const col of [
+            { name: 'access_token',     def: 'TEXT NULL AFTER is_connected' },
+            { name: 'refresh_token',    def: 'TEXT NULL AFTER access_token' },
+            { name: 'realm_id',         def: "VARCHAR(100) NULL AFTER refresh_token" },
+            { name: 'token_expires_at', def: 'DATETIME NULL AFTER realm_id' },
+        ]) {
+            try {
+                await conn.execute(`ALTER TABLE qb_settings ADD COLUMN ${col.name} ${col.def}`)
+                console.log(`[DB] Added ${col.name} column to qb_settings`)
+            } catch (err) {
+                if (err.code !== 'ER_DUP_FIELDNAME') {
+                    console.error(`[DB] Error adding ${col.name}:`, err.message)
+                }
+            }
+        }
 
         // QuickBooks account mappings
         await conn.execute(`
@@ -1062,12 +1083,86 @@ app.get('/api/dashboard/ecommerce', (req, res) => {
 
 // ── QuickBooks API ──────────────────────────────────────────────────────────
 
+// QuickBooks OAuth2 endpoints
+const QB_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
+const QB_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
+const QB_REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke'
+const QB_API_BASE = 'https://quickbooks.api.intuit.com/v3/company'
+const QB_SCOPE = 'com.intuit.quickbooks.accounting'
+
 // Helper: ensure single-row config tables have a row
 async function ensureQBRow(table) {
     const [[row]] = await pool.execute(`SELECT id FROM ${table} LIMIT 1`)
     if (!row) {
         await pool.execute(`INSERT INTO ${table} () VALUES ()`)
     }
+}
+
+// Helper: make an HTTPS request and return { statusCode, body }
+function qbHttpsRequest(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        const parsedUrl = new URL(url)
+        const reqOptions = {
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port || 443,
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: options.method || 'GET',
+            headers: options.headers || {},
+        }
+        const req = https.request(reqOptions, (res) => {
+            let body = ''
+            res.on('data', (chunk) => { body += chunk })
+            res.on('end', () => {
+                resolve({ statusCode: res.statusCode, body })
+            })
+        })
+        req.on('error', reject)
+        if (options.body) req.write(options.body)
+        req.end()
+    })
+}
+
+// Helper: refresh the access token using the refresh token
+async function refreshQBToken(settings) {
+    const basicAuth = Buffer.from(`${settings.qb_client_id}:${settings.qb_client_secret}`).toString('base64')
+    const postData = `grant_type=refresh_token&refresh_token=${encodeURIComponent(settings.refresh_token)}`
+    const result = await qbHttpsRequest(QB_TOKEN_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${basicAuth}`,
+            'Accept': 'application/json',
+        },
+        body: postData,
+    })
+    if (result.statusCode !== 200) {
+        console.error('[QB] Token refresh failed:', result.body)
+        return null
+    }
+    const tokenData = JSON.parse(result.body)
+    const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000)
+    await pool.execute(
+        'UPDATE qb_settings SET access_token=?, refresh_token=?, token_expires_at=? ORDER BY id LIMIT 1',
+        [tokenData.access_token, tokenData.refresh_token, expiresAt]
+    )
+    return tokenData.access_token
+}
+
+// Helper: get a valid access token (refreshes if expired)
+async function getValidQBToken() {
+    await ensureQBRow('qb_settings')
+    const [[settings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
+    if (!settings || !settings.is_connected || !settings.access_token) return null
+
+    // Check if token is expired (refresh 5 minutes before expiry)
+    const now = new Date()
+    const expiresAt = settings.token_expires_at ? new Date(settings.token_expires_at) : null
+    if (!expiresAt || now >= new Date(expiresAt.getTime() - 5 * 60 * 1000)) {
+        if (!settings.refresh_token) return null
+        const newToken = await refreshQBToken(settings)
+        return newToken
+    }
+    return settings.access_token
 }
 
 // GET /api/quickbooks/settings
@@ -1080,6 +1175,7 @@ app.get('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res) 
             qb_client_secret: row.qb_client_secret,
             qb_redirect_uri: row.qb_redirect_uri,
             is_connected: !!row.is_connected,
+            realm_id: row.realm_id || '',
         })
     } catch (e) {
         console.error('[QB] settings get error:', e.message)
@@ -1104,24 +1200,110 @@ app.post('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res)
     }
 })
 
-// POST /api/quickbooks/connect
-app.post('/api/quickbooks/connect', requireAuth, requireAdmin, async (req, res) => {
+// GET /api/quickbooks/auth-url — generate the real QuickBooks OAuth2 authorization URL
+app.get('/api/quickbooks/auth-url', requireAuth, requireAdmin, async (req, res) => {
     try {
         await ensureQBRow('qb_settings')
-        await pool.execute('UPDATE qb_settings SET is_connected=1 ORDER BY id LIMIT 1')
-        await logActivity(req.user.id, 'qb_connect', 'Connected to QuickBooks', getIp(req))
-        res.json({ ok: true })
+        const [[settings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
+        if (!settings.qb_client_id || !settings.qb_client_secret || !settings.qb_redirect_uri) {
+            return res.status(400).json({ message: 'Please save your QuickBooks Client ID, Client Secret, and Redirect URI first.' })
+        }
+        const state = randomUUID()
+        const authUrl = `${QB_AUTH_URL}?client_id=${encodeURIComponent(settings.qb_client_id)}&response_type=code&scope=${encodeURIComponent(QB_SCOPE)}&redirect_uri=${encodeURIComponent(settings.qb_redirect_uri)}&state=${state}`
+        res.json({ auth_url: authUrl, state })
     } catch (e) {
-        console.error('[QB] connect error:', e.message)
+        console.error('[QB] auth-url error:', e.message)
         res.status(500).json({ message: 'Server error' })
     }
 })
 
-// POST /api/quickbooks/disconnect
+// GET /api/quickbooks/callback — handle the OAuth2 callback from QuickBooks
+app.get('/api/quickbooks/callback', async (req, res) => {
+    const { code, realmId, state, error } = req.query
+    if (error) {
+        console.error('[QB] OAuth error:', error)
+        // Redirect to the QuickBooks settings page with error
+        return res.redirect('/quickbooks?qb_error=' + encodeURIComponent(error))
+    }
+    if (!code || !realmId) {
+        return res.redirect('/quickbooks?qb_error=missing_code_or_realm')
+    }
+    try {
+        await ensureQBRow('qb_settings')
+        const [[settings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
+        if (!settings.qb_client_id || !settings.qb_client_secret) {
+            return res.redirect('/quickbooks?qb_error=missing_credentials')
+        }
+
+        // Exchange authorization code for tokens
+        const basicAuth = Buffer.from(`${settings.qb_client_id}:${settings.qb_client_secret}`).toString('base64')
+        const postData = `grant_type=authorization_code&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(settings.qb_redirect_uri)}`
+
+        const result = await qbHttpsRequest(QB_TOKEN_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authorization': `Basic ${basicAuth}`,
+                'Accept': 'application/json',
+            },
+            body: postData,
+        })
+
+        if (result.statusCode !== 200) {
+            console.error('[QB] Token exchange failed:', result.body)
+            return res.redirect('/quickbooks?qb_error=token_exchange_failed')
+        }
+
+        const tokenData = JSON.parse(result.body)
+        const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000)
+
+        // Store tokens and mark as connected
+        await pool.execute(
+            'UPDATE qb_settings SET access_token=?, refresh_token=?, realm_id=?, token_expires_at=?, is_connected=1 ORDER BY id LIMIT 1',
+            [tokenData.access_token, tokenData.refresh_token, realmId, expiresAt]
+        )
+
+        await logActivity(null, 'qb_connect', `Connected to QuickBooks (realmId=${realmId})`, '')
+        console.log('[QB] Successfully connected to QuickBooks, realmId:', realmId)
+
+        // Redirect to the QuickBooks settings page with success
+        return res.redirect('/quickbooks?qb_connected=true')
+    } catch (e) {
+        console.error('[QB] callback error:', e.message)
+        return res.redirect('/quickbooks?qb_error=server_error')
+    }
+})
+
+// POST /api/quickbooks/disconnect — revoke tokens and clear connection
 app.post('/api/quickbooks/disconnect', requireAuth, requireAdmin, async (req, res) => {
     try {
         await ensureQBRow('qb_settings')
-        await pool.execute('UPDATE qb_settings SET is_connected=0 ORDER BY id LIMIT 1')
+        const [[settings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
+
+        // Revoke the token at QuickBooks if we have one
+        if (settings.refresh_token && settings.qb_client_id && settings.qb_client_secret) {
+            try {
+                const basicAuth = Buffer.from(`${settings.qb_client_id}:${settings.qb_client_secret}`).toString('base64')
+                const postData = JSON.stringify({ token: settings.refresh_token })
+                await qbHttpsRequest(QB_REVOKE_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Basic ${basicAuth}`,
+                        'Accept': 'application/json',
+                    },
+                    body: postData,
+                })
+                console.log('[QB] Token revoked at QuickBooks')
+            } catch (revokeErr) {
+                console.error('[QB] Token revoke error (non-critical):', revokeErr.message)
+            }
+        }
+
+        // Clear tokens and mark as disconnected
+        await pool.execute(
+            'UPDATE qb_settings SET is_connected=0, access_token=NULL, refresh_token=NULL, realm_id=NULL, token_expires_at=NULL ORDER BY id LIMIT 1'
+        )
         await logActivity(req.user.id, 'qb_disconnect', 'Disconnected from QuickBooks', getIp(req))
         res.json({ ok: true })
     } catch (e) {
@@ -1130,22 +1312,49 @@ app.post('/api/quickbooks/disconnect', requireAuth, requireAdmin, async (req, re
     }
 })
 
-// GET /api/quickbooks/accounts — returns available QB accounts for mapping
+// GET /api/quickbooks/accounts — fetch real Chart of Accounts from QuickBooks API
 app.get('/api/quickbooks/accounts', requireAuth, requireAdmin, async (req, res) => {
     try {
-        // Placeholder accounts — in production these would come from the QuickBooks API
-        const accounts = [
-            { id: 'income_topups', name: 'Income - Top-ups' },
-            { id: 'income_shop_sales', name: 'Income - Shop Sales' },
-            { id: 'income_refunds', name: 'Income - Refunds' },
-            { id: 'expense_center', name: 'Expense - Center Operations' },
-            { id: 'expense_utilities', name: 'Expense - Utilities' },
-            { id: 'expense_rent', name: 'Expense - Rent' },
-            { id: 'expense_supplies', name: 'Expense - Supplies' },
-            { id: 'cogs', name: 'Cost of Goods Sold' },
-            { id: 'bank_checking', name: 'Bank - Checking' },
-            { id: 'bank_savings', name: 'Bank - Savings' },
-        ]
+        await ensureQBRow('qb_settings')
+        const [[settings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
+
+        if (!settings.is_connected || !settings.realm_id) {
+            return res.json([])
+        }
+
+        const accessToken = await getValidQBToken()
+        if (!accessToken) {
+            // Token could not be refreshed — mark as disconnected
+            await pool.execute(
+                'UPDATE qb_settings SET is_connected=0, access_token=NULL, refresh_token=NULL, realm_id=NULL, token_expires_at=NULL ORDER BY id LIMIT 1'
+            )
+            return res.status(401).json({ message: 'QuickBooks session expired. Please reconnect.' })
+        }
+
+        // Query the Chart of Accounts from QuickBooks
+        const query = encodeURIComponent("SELECT * FROM Account WHERE Active = true ORDERBY Name")
+        const url = `${QB_API_BASE}/${settings.realm_id}/query?query=${query}&minorversion=65`
+
+        const result = await qbHttpsRequest(url, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Accept': 'application/json',
+            },
+        })
+
+        if (result.statusCode !== 200) {
+            console.error('[QB] Account query failed:', result.statusCode, result.body)
+            return res.status(502).json({ message: 'Failed to fetch accounts from QuickBooks' })
+        }
+
+        const data = JSON.parse(result.body)
+        const qbAccounts = (data.QueryResponse && data.QueryResponse.Account) || []
+        const accounts = qbAccounts.map((acct) => ({
+            id: acct.Id,
+            name: `${acct.AccountType} - ${acct.Name}`,
+        }))
+
         res.json(accounts)
     } catch (e) {
         console.error('[QB] accounts error:', e.message)

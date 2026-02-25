@@ -20,10 +20,10 @@ export async function apiSaveQBSettings<T>(data: {
     })
 }
 
-export async function apiConnectQB<T>() {
+export async function apiGetQBAuthUrl<T>() {
     return ApiService.fetchDataWithAxios<T>({
-        url: '/quickbooks/connect',
-        method: 'post',
+        url: '/quickbooks/auth-url',
+        method: 'get',
     })
 }
 

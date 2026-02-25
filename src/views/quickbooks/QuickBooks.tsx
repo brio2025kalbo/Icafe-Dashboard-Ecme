@@ -11,7 +11,7 @@ import Tag from '@/components/ui/Tag'
 import {
     apiGetQBSettings,
     apiSaveQBSettings,
-    apiConnectQB,
+    apiGetQBAuthUrl,
     apiDisconnectQB,
     apiGetQBAccounts,
     apiGetQBMappings,
@@ -31,6 +31,12 @@ type QBSettings = {
     qb_client_secret: string
     qb_redirect_uri: string
     is_connected: boolean
+    realm_id: string
+}
+
+type QBAuthUrlResponse = {
+    auth_url: string
+    state: string
 }
 
 type QBAccount = {
@@ -86,6 +92,31 @@ function ConnectionSettingsCard() {
         }
     }, [data])
 
+    // Handle OAuth callback query parameters on mount
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search)
+        if (params.get('qb_connected') === 'true') {
+            toast.push(
+                <Notification type="success" title="Connected">
+                    Successfully connected to QuickBooks!
+                </Notification>,
+            )
+            mutate('/quickbooks/settings')
+            mutate('/quickbooks/accounts')
+            // Clean up URL
+            window.history.replaceState({}, '', window.location.pathname)
+        }
+        const qbError = params.get('qb_error')
+        if (qbError) {
+            toast.push(
+                <Notification type="danger" title="Connection Failed">
+                    QuickBooks OAuth error: {qbError}
+                </Notification>,
+            )
+            window.history.replaceState({}, '', window.location.pathname)
+        }
+    }, [])
+
     const handleSave = async () => {
         setSaving(true)
         try {
@@ -113,21 +144,17 @@ function ConnectionSettingsCard() {
     const handleConnect = async () => {
         setConnecting(true)
         try {
-            await apiConnectQB()
-            mutate('/quickbooks/settings')
-            toast.push(
-                <Notification type="success" title="Connected">
-                    Connected to QuickBooks successfully.
-                </Notification>,
-            )
+            const result = await apiGetQBAuthUrl<QBAuthUrlResponse>()
+            // Redirect the user to QuickBooks OAuth authorization page
+            window.location.href = result.auth_url
         } catch {
             toast.push(
                 <Notification type="danger" title="Error">
-                    Failed to connect to QuickBooks.
+                    Failed to initiate QuickBooks connection. Make sure you have saved your Client ID, Client Secret, and Redirect URI.
                 </Notification>,
             )
+            setConnecting(false)
         }
-        setConnecting(false)
     }
 
     const handleDisconnect = async () => {
@@ -135,9 +162,10 @@ function ConnectionSettingsCard() {
         try {
             await apiDisconnectQB()
             mutate('/quickbooks/settings')
+            mutate('/quickbooks/accounts')
             toast.push(
                 <Notification type="success" title="Disconnected">
-                    Disconnected from QuickBooks.
+                    Disconnected from QuickBooks. Tokens have been revoked.
                 </Notification>,
             )
         } catch {
@@ -197,13 +225,18 @@ function ConnectionSettingsCard() {
                         QB Redirect URI
                     </label>
                     <Input
-                        placeholder="Enter QuickBooks Redirect URI"
+                        placeholder="e.g. http://localhost:3000/api/quickbooks/callback"
                         value={redirectUri}
                         onChange={(e) =>
                             setRedirectUri((e.target as HTMLInputElement).value)
                         }
                     />
                 </div>
+                {isConnected && data?.realm_id && (
+                    <div className="text-sm text-gray-500">
+                        Connected to Company ID: <strong>{data.realm_id}</strong>
+                    </div>
+                )}
                 <div className="flex gap-2">
                     <Button
                         variant="solid"
@@ -227,7 +260,7 @@ function ConnectionSettingsCard() {
                             onClick={handleConnect}
                             disabled={!clientId || !clientSecret || !redirectUri}
                         >
-                            Connect
+                            Connect to QuickBooks
                         </Button>
                     )}
                 </div>
@@ -239,8 +272,16 @@ function ConnectionSettingsCard() {
 // ── Account Mappings Card ────────────────────────────────────────────────────
 
 function AccountMappingsCard() {
+    const { data: settings } = useSWR<QBSettings>(
+        '/quickbooks/settings',
+        () => apiGetQBSettings<QBSettings>(),
+        { revalidateOnFocus: false },
+    )
+
+    const isConnected = settings?.is_connected ?? false
+
     const { data: accounts } = useSWR<QBAccount[]>(
-        '/quickbooks/accounts',
+        isConnected ? '/quickbooks/accounts' : null,
         () => apiGetQBAccounts<QBAccount[]>(),
         { revalidateOnFocus: false },
     )
@@ -303,79 +344,91 @@ function AccountMappingsCard() {
                 bordered: true,
             }}
         >
-            <div className="flex flex-col gap-4">
-                <div>
-                    <label className="block text-sm font-medium mb-1">
-                        Top-ups Account
-                    </label>
-                    <Select
-                        placeholder="Select account for Top-ups"
-                        options={accountOptions}
-                        value={accountOptions.find((o) => o.value === topups) || null}
-                        onChange={(opt) =>
-                            setTopups((opt as SelectOption)?.value || '')
-                        }
-                    />
+            {!isConnected ? (
+                <p className="text-gray-500">
+                    Connect to QuickBooks first to load your Chart of Accounts.
+                </p>
+            ) : (
+                <div className="flex flex-col gap-4">
+                    {accountOptions.length === 0 ? (
+                        <p className="text-gray-500">Loading accounts from QuickBooks...</p>
+                    ) : (
+                        <>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">
+                                    Top-ups Account
+                                </label>
+                                <Select
+                                    placeholder="Select account for Top-ups"
+                                    options={accountOptions}
+                                    value={accountOptions.find((o) => o.value === topups) || null}
+                                    onChange={(opt) =>
+                                        setTopups((opt as SelectOption)?.value || '')
+                                    }
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">
+                                    Shop Sales Account
+                                </label>
+                                <Select
+                                    placeholder="Select account for Shop Sales"
+                                    options={accountOptions}
+                                    value={
+                                        accountOptions.find((o) => o.value === shopSales) ||
+                                        null
+                                    }
+                                    onChange={(opt) =>
+                                        setShopSales((opt as SelectOption)?.value || '')
+                                    }
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">
+                                    Refunds Account
+                                </label>
+                                <Select
+                                    placeholder="Select account for Refunds"
+                                    options={accountOptions}
+                                    value={
+                                        accountOptions.find((o) => o.value === refunds) ||
+                                        null
+                                    }
+                                    onChange={(opt) =>
+                                        setRefunds((opt as SelectOption)?.value || '')
+                                    }
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">
+                                    Center Expenses Account
+                                </label>
+                                <Select
+                                    placeholder="Select account for Center Expenses"
+                                    options={accountOptions}
+                                    value={
+                                        accountOptions.find(
+                                            (o) => o.value === centerExpenses,
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setCenterExpenses(
+                                            (opt as SelectOption)?.value || '',
+                                        )
+                                    }
+                                />
+                            </div>
+                            <Button
+                                variant="solid"
+                                loading={saving}
+                                onClick={handleSave}
+                            >
+                                Save Mappings
+                            </Button>
+                        </>
+                    )}
                 </div>
-                <div>
-                    <label className="block text-sm font-medium mb-1">
-                        Shop Sales Account
-                    </label>
-                    <Select
-                        placeholder="Select account for Shop Sales"
-                        options={accountOptions}
-                        value={
-                            accountOptions.find((o) => o.value === shopSales) ||
-                            null
-                        }
-                        onChange={(opt) =>
-                            setShopSales((opt as SelectOption)?.value || '')
-                        }
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium mb-1">
-                        Refunds Account
-                    </label>
-                    <Select
-                        placeholder="Select account for Refunds"
-                        options={accountOptions}
-                        value={
-                            accountOptions.find((o) => o.value === refunds) ||
-                            null
-                        }
-                        onChange={(opt) =>
-                            setRefunds((opt as SelectOption)?.value || '')
-                        }
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium mb-1">
-                        Center Expenses Account
-                    </label>
-                    <Select
-                        placeholder="Select account for Center Expenses"
-                        options={accountOptions}
-                        value={
-                            accountOptions.find(
-                                (o) => o.value === centerExpenses,
-                            ) || null
-                        }
-                        onChange={(opt) =>
-                            setCenterExpenses(
-                                (opt as SelectOption)?.value || '',
-                            )
-                        }
-                    />
-                </div>
-                <Button
-                    variant="solid"
-                    loading={saving}
-                    onClick={handleSave}
-                >
-                    Save Mappings
-                </Button>
-            </div>
+            )}
         </Card>
     )
 }
