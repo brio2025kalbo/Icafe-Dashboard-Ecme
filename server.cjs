@@ -101,6 +101,54 @@ async function initDb() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
 
+        // QuickBooks connection settings
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS qb_settings (
+                id         INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                qb_client_id     VARCHAR(500) NOT NULL DEFAULT '',
+                qb_client_secret VARCHAR(500) NOT NULL DEFAULT '',
+                qb_redirect_uri  VARCHAR(500) NOT NULL DEFAULT '',
+                is_connected     TINYINT(1)   NOT NULL DEFAULT 0,
+                updated_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // QuickBooks account mappings
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS qb_account_mappings (
+                id                    INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                topups_account        VARCHAR(255) NOT NULL DEFAULT '',
+                shop_sales_account    VARCHAR(255) NOT NULL DEFAULT '',
+                refunds_account       VARCHAR(255) NOT NULL DEFAULT '',
+                center_expenses_account VARCHAR(255) NOT NULL DEFAULT '',
+                updated_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // QuickBooks automated report schedule
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS qb_schedule (
+                id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                schedule_type VARCHAR(50)  NOT NULL DEFAULT '',
+                schedule_time VARCHAR(10)  NOT NULL DEFAULT '06:00',
+                updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // QuickBooks send history (unique per cafe + date to prevent duplicates)
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS qb_send_history (
+                id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+                cafe_id     VARCHAR(36)  NOT NULL,
+                cafe_name   VARCHAR(255) NOT NULL,
+                report_date DATE         NOT NULL,
+                sent_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                status      VARCHAR(20)  NOT NULL DEFAULT 'success',
+                sent_by     VARCHAR(36)  NULL,
+                UNIQUE KEY uq_cafe_date (cafe_id, report_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
         // Ensure theme_mode column exists for existing users table
         try {
             await conn.execute("ALTER TABLE users ADD COLUMN theme_mode ENUM('light', 'dark') NOT NULL DEFAULT 'light' AFTER avatar")
@@ -1010,6 +1058,211 @@ setInterval(() => {
 const ecommerceDashboardData = require('./data/ecommerce_dashboard.json')
 app.get('/api/dashboard/ecommerce', (req, res) => {
     res.json(ecommerceDashboardData)
+})
+
+// ── QuickBooks API ──────────────────────────────────────────────────────────
+
+// Helper: ensure single-row config tables have a row
+async function ensureQBRow(table) {
+    const [[row]] = await pool.execute(`SELECT id FROM ${table} LIMIT 1`)
+    if (!row) {
+        await pool.execute(`INSERT INTO ${table} () VALUES ()`)
+    }
+}
+
+// GET /api/quickbooks/settings
+app.get('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureQBRow('qb_settings')
+        const [[row]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
+        res.json({
+            qb_client_id: row.qb_client_id,
+            qb_client_secret: row.qb_client_secret,
+            qb_redirect_uri: row.qb_redirect_uri,
+            is_connected: !!row.is_connected,
+        })
+    } catch (e) {
+        console.error('[QB] settings get error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/quickbooks/settings
+app.post('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res) => {
+    const { qb_client_id, qb_client_secret, qb_redirect_uri } = req.body || {}
+    try {
+        await ensureQBRow('qb_settings')
+        await pool.execute(
+            'UPDATE qb_settings SET qb_client_id=?, qb_client_secret=?, qb_redirect_uri=? ORDER BY id LIMIT 1',
+            [qb_client_id || '', qb_client_secret || '', qb_redirect_uri || '']
+        )
+        await logActivity(req.user.id, 'qb_settings_update', 'QuickBooks settings updated', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[QB] settings save error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/quickbooks/connect
+app.post('/api/quickbooks/connect', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureQBRow('qb_settings')
+        await pool.execute('UPDATE qb_settings SET is_connected=1 ORDER BY id LIMIT 1')
+        await logActivity(req.user.id, 'qb_connect', 'Connected to QuickBooks', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[QB] connect error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/quickbooks/disconnect
+app.post('/api/quickbooks/disconnect', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureQBRow('qb_settings')
+        await pool.execute('UPDATE qb_settings SET is_connected=0 ORDER BY id LIMIT 1')
+        await logActivity(req.user.id, 'qb_disconnect', 'Disconnected from QuickBooks', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[QB] disconnect error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/quickbooks/accounts — returns available QB accounts for mapping
+app.get('/api/quickbooks/accounts', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        // Placeholder accounts — in production these would come from the QuickBooks API
+        const accounts = [
+            { id: 'income_topups', name: 'Income - Top-ups' },
+            { id: 'income_shop_sales', name: 'Income - Shop Sales' },
+            { id: 'income_refunds', name: 'Income - Refunds' },
+            { id: 'expense_center', name: 'Expense - Center Operations' },
+            { id: 'expense_utilities', name: 'Expense - Utilities' },
+            { id: 'expense_rent', name: 'Expense - Rent' },
+            { id: 'expense_supplies', name: 'Expense - Supplies' },
+            { id: 'cogs', name: 'Cost of Goods Sold' },
+            { id: 'bank_checking', name: 'Bank - Checking' },
+            { id: 'bank_savings', name: 'Bank - Savings' },
+        ]
+        res.json(accounts)
+    } catch (e) {
+        console.error('[QB] accounts error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/quickbooks/mappings
+app.get('/api/quickbooks/mappings', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureQBRow('qb_account_mappings')
+        const [[row]] = await pool.execute('SELECT * FROM qb_account_mappings LIMIT 1')
+        res.json({
+            topups_account: row.topups_account,
+            shop_sales_account: row.shop_sales_account,
+            refunds_account: row.refunds_account,
+            center_expenses_account: row.center_expenses_account,
+        })
+    } catch (e) {
+        console.error('[QB] mappings get error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/quickbooks/mappings
+app.post('/api/quickbooks/mappings', requireAuth, requireAdmin, async (req, res) => {
+    const { topups_account, shop_sales_account, refunds_account, center_expenses_account } = req.body || {}
+    try {
+        await ensureQBRow('qb_account_mappings')
+        await pool.execute(
+            'UPDATE qb_account_mappings SET topups_account=?, shop_sales_account=?, refunds_account=?, center_expenses_account=? ORDER BY id LIMIT 1',
+            [topups_account || '', shop_sales_account || '', refunds_account || '', center_expenses_account || '']
+        )
+        await logActivity(req.user.id, 'qb_mappings_update', 'QuickBooks account mappings updated', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[QB] mappings save error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/quickbooks/send-report
+app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, res) => {
+    const { cafe_id, report_date } = req.body || {}
+    if (!cafe_id || !report_date) {
+        return res.status(400).json({ message: 'cafe_id and report_date required' })
+    }
+    try {
+        // Check for duplicate
+        const [[existing]] = await pool.execute(
+            'SELECT id FROM qb_send_history WHERE cafe_id=? AND report_date=?',
+            [cafe_id, report_date]
+        )
+        if (existing) {
+            return res.status(409).json({ message: 'Report for this cafe and date has already been sent' })
+        }
+
+        // Look up cafe name
+        const [[cafe]] = await pool.execute('SELECT name FROM cafes WHERE id=?', [cafe_id])
+        const cafeName = cafe ? cafe.name : 'Unknown Cafe'
+
+        const id = randomUUID()
+        await pool.execute(
+            'INSERT INTO qb_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
+            [id, cafe_id, cafeName, report_date, 'success', req.user.id]
+        )
+        await logActivity(req.user.id, 'qb_report_sent', `Report sent for ${cafeName} on ${report_date}`, getIp(req))
+        res.json({ ok: true, id })
+    } catch (e) {
+        console.error('[QB] send-report error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/quickbooks/schedule
+app.get('/api/quickbooks/schedule', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureQBRow('qb_schedule')
+        const [[row]] = await pool.execute('SELECT * FROM qb_schedule LIMIT 1')
+        res.json({
+            schedule_type: row.schedule_type,
+            schedule_time: row.schedule_time,
+        })
+    } catch (e) {
+        console.error('[QB] schedule get error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/quickbooks/schedule
+app.post('/api/quickbooks/schedule', requireAuth, requireAdmin, async (req, res) => {
+    const { schedule_type, schedule_time } = req.body || {}
+    try {
+        await ensureQBRow('qb_schedule')
+        await pool.execute(
+            'UPDATE qb_schedule SET schedule_type=?, schedule_time=? ORDER BY id LIMIT 1',
+            [schedule_type || '', schedule_time || '06:00']
+        )
+        await logActivity(req.user.id, 'qb_schedule_update', `Schedule set to ${schedule_type}`, getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[QB] schedule save error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/quickbooks/history
+app.get('/api/quickbooks/history', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT id, cafe_id, cafe_name, report_date, sent_at, status FROM qb_send_history ORDER BY sent_at DESC LIMIT 100'
+        )
+        res.json(rows)
+    } catch (e) {
+        console.error('[QB] history error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
 })
 
 // ── Serve the Vite production build (only when build/ exists) ───────────────
