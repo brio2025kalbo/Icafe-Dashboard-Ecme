@@ -1630,27 +1630,67 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
             }
         }
 
-        // Fetch itemized refund details from billingLogs API
+        // Fetch itemized refund details from billingLogs API (with pagination)
         if (totalRefunds !== 0) {
             let blDateEnd = nextDate
-            const blUrl = `/cafe/${cafe.icafe_cafe_id}/billingLogs?date_start=${report_date}&date_end=${blDateEnd}&time_start=06:00&time_end=05:59&event=TOPUP`
-            const blResp = await fetchIcafeApi(blUrl)
-            const blData = blResp?.data
-            const entries = Array.isArray(blData) ? blData
-                : (blData && typeof blData === 'object' && Array.isArray(blData.items)) ? blData.items
-                : []
-            for (const entry of entries) {
-                const money = parseFloat(String(entry.log_money || entry.money || 0)) || 0
-                if (money < 0) {
-                    allRefundItems.push({
-                        log_money: String(entry.log_money || entry.money || money),
-                        log_details: String(entry.log_details || entry.log_detail || entry.details || ''),
-                        log_member_account: entry.log_member_account ? String(entry.log_member_account) : '',
-                    })
+            let blPage = 1
+            let blTotalPages = 1
+
+            do {
+                const blUrl = `/cafe/${cafe.icafe_cafe_id}/billingLogs?date_start=${report_date}&date_end=${blDateEnd}&time_start=06:00&time_end=05:59&event=TOPUP&page=${blPage}`
+                const blResp = await fetchIcafeApi(blUrl)
+
+                // Parse the response structure (matches frontend's apiGetBillingLogs logic)
+                const blData = blResp?.data
+                let entries = []
+                let paging = null
+
+                if (Array.isArray(blData)) {
+                    // response: { code, message, data: [ ...entries ] }
+                    entries = blData
+                    paging = blResp?.paging_info || null
+                } else if (blData && typeof blData === 'object') {
+                    // response: { code, message, data: { items: [...], paging_info: {...} } }
+                    if (Array.isArray(blData.items)) {
+                        entries = blData.items
+                    } else {
+                        // Try to find any array-valued key
+                        const arrVal = Object.values(blData).find(Array.isArray)
+                        entries = arrVal || []
+                    }
+                    paging = blData.paging_info || null
                 }
-            }
+
+                if (blPage === 1) {
+                    console.log(`[QB] billingLogs page ${blPage}: resp keys:`,
+                        blResp ? Object.keys(blResp) : 'null',
+                        '| data type:', Array.isArray(blData) ? 'array' : typeof blData,
+                        '| entries:', entries.length,
+                        '| paging:', paging ? JSON.stringify(paging) : 'none')
+                }
+
+                if (entries.length === 0) break
+
+                for (const entry of entries) {
+                    const money = parseFloat(String(entry.log_money ?? entry.money ?? 0)) || 0
+                    if (money < 0) {
+                        allRefundItems.push({
+                            log_money: String(entry.log_money ?? entry.money ?? money),
+                            log_details: String(entry.log_details ?? entry.log_detail ?? entry.details ?? ''),
+                            log_member_account: entry.log_member_account ? String(entry.log_member_account) : '',
+                        })
+                    }
+                }
+
+                if (!paging) break
+                blTotalPages = Number(paging.pages ?? paging.total_pages ?? 1) || 1
+                blPage++
+            } while (blPage <= blTotalPages)
+
             if (allRefundItems.length > 0) {
-                console.log(`[QB] Found ${allRefundItems.length} refund item(s) from billing logs`)
+                console.log(`[QB] Found ${allRefundItems.length} refund item(s) from billing logs (${blPage} page(s))`)
+            } else {
+                console.log(`[QB] No refund items found in billing logs despite totalRefunds=${totalRefunds.toFixed(2)}`)
             }
         }
 
