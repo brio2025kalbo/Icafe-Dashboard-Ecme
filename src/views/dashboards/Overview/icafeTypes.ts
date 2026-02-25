@@ -177,6 +177,7 @@ export type SessionData = {
     total_session: number
     avg_duration: number
     unique_guests_count: number
+    new_members_number: number
 }
 
 export type CustomerAnalysisData = {
@@ -265,6 +266,7 @@ export type ReportDataWithGames = {
     game?: GameItem[]
     top_five_pc_spend?: PcSpendItem[]
     income?: ReportDataIncome
+    new_members_number?: number
     [key: string]: unknown
 }
 
