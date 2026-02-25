@@ -522,7 +522,10 @@ function SendDailyReportCard() {
         if (!selectedCafe || !reportDate) return
         setSending(true)
         try {
-            const dateStr = reportDate.toISOString().split('T')[0]
+            const y = reportDate.getFullYear()
+            const m = String(reportDate.getMonth() + 1).padStart(2, '0')
+            const d = String(reportDate.getDate()).padStart(2, '0')
+            const dateStr = `${y}-${m}-${d}`
             const result = await apiSendQBReport<{
                 ok: boolean
                 totals?: { top_ups: number; shop_sales: number; refunds: number; center_expenses: number }
