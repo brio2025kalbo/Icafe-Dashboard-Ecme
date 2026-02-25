@@ -523,18 +523,27 @@ function SendDailyReportCard() {
         setSending(true)
         try {
             const dateStr = reportDate.toISOString().split('T')[0]
-            await apiSendQBReport({ cafe_id: selectedCafe, report_date: dateStr })
+            const result = await apiSendQBReport<{
+                ok: boolean
+                totals?: { top_ups: number; shop_sales: number; refunds: number; center_expenses: number }
+            }>({ cafe_id: selectedCafe, report_date: dateStr })
             mutate('/quickbooks/history')
+            const totals = result.totals
             toast.push(
-                <Notification type="success" title="Report Sent">
-                    Daily report sent to QuickBooks successfully.
+                <Notification type="success" title="Report Sent to QuickBooks">
+                    {totals
+                        ? `Top-ups: ${totals.top_ups.toFixed(2)}, Shop Sales: ${totals.shop_sales.toFixed(2)}, Refunds: ${totals.refunds.toFixed(2)}, Expenses: ${totals.center_expenses.toFixed(2)}`
+                        : 'Daily report journal entry created in QuickBooks.'}
                 </Notification>,
             )
-        } catch {
+        } catch (err: unknown) {
+            const errorMsg =
+                err && typeof err === 'object' && 'response' in err
+                    ? ((err as { response?: { data?: { message?: string } } }).response?.data?.message || 'Failed to send report.')
+                    : 'Failed to send report.'
             toast.push(
                 <Notification type="danger" title="Error">
-                    Failed to send report. It may have already been sent for
-                    this date.
+                    {errorMsg}
                 </Notification>,
             )
         }

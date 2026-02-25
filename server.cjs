@@ -1466,17 +1466,256 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
             return res.status(409).json({ message: 'Report for this cafe and date has already been sent' })
         }
 
-        // Look up cafe name
-        const [[cafe]] = await pool.execute('SELECT name FROM cafes WHERE id=?', [cafe_id])
-        const cafeName = cafe ? cafe.name : 'Unknown Cafe'
+        // Look up cafe details (name, iCafe cafe_id, api_key)
+        const [[cafe]] = await pool.execute('SELECT name, cafe_id AS icafe_cafe_id, api_key FROM cafes WHERE id=?', [cafe_id])
+        if (!cafe) {
+            return res.status(404).json({ message: 'Cafe not found' })
+        }
+        const cafeName = cafe.name
 
-        const id = randomUUID()
-        await pool.execute(
-            'INSERT INTO qb_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
-            [id, cafe_id, cafeName, report_date, 'success', req.user.id]
+        // Verify QuickBooks is connected
+        await ensureQBRow('qb_settings')
+        const [[qbSettings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
+        if (!qbSettings.is_connected || !qbSettings.realm_id) {
+            return res.status(400).json({ message: 'QuickBooks is not connected. Please connect first.' })
+        }
+
+        // Get valid QB access token
+        const accessToken = await getValidQBToken()
+        if (!accessToken) {
+            return res.status(401).json({ message: 'QuickBooks session expired. Please reconnect.' })
+        }
+
+        // Load account mappings
+        await ensureQBRow('qb_account_mappings')
+        const [[mappings]] = await pool.execute('SELECT * FROM qb_account_mappings LIMIT 1')
+        if (!mappings.topups_account && !mappings.shop_sales_account && !mappings.refunds_account && !mappings.center_expenses_account) {
+            return res.status(400).json({ message: 'No account mappings configured. Please set up account mappings first.' })
+        }
+
+        // ── Fetch daily totals from iCafe API ────────────────────────────────
+        // Compute nextDate (report_date + 1 day) for the business-day shift query
+        const dateParts = report_date.split('-').map(Number)
+        const dateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
+        dateObj.setDate(dateObj.getDate() + 1)
+        const nextDate = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`
+
+        // Fetch shift list for current day (6:00 AM to 23:59) and next day (00:00 to 05:59)
+        const icafeApiBase = 'https://api.icafecloud.com/api/v2'
+        const authHeader = `Bearer ${cafe.api_key}`
+
+        async function fetchIcafeApi(urlPath) {
+            const url = icafeApiBase + urlPath
+            const result = await qbHttpsRequest(url, {
+                method: 'GET',
+                headers: { 'Authorization': authHeader, 'Accept': 'application/json' },
+            })
+            if (result.statusCode !== 200) {
+                console.error(`[QB] iCafe API error: ${result.statusCode}`, result.body)
+                return null
+            }
+            try { return JSON.parse(result.body) } catch { return null }
+        }
+
+        // Two queries for a business day: shifts starting 6am-midnight, then midnight-6am next day
+        const shiftList1 = await fetchIcafeApi(
+            `/cafe/${cafe.icafe_cafe_id}/reports/shiftList?date_start=${report_date}&date_end=${report_date}&time_start=06:00&time_end=23:59`
         )
-        await logActivity(req.user.id, 'qb_report_sent', `Report sent for ${cafeName} on ${report_date}`, getIp(req))
-        res.json({ ok: true, id })
+        const shiftList2 = await fetchIcafeApi(
+            `/cafe/${cafe.icafe_cafe_id}/reports/shiftList?date_start=${nextDate}&date_end=${nextDate}&time_start=00:00&time_end=05:59`
+        )
+
+        const allShifts = [
+            ...((shiftList1 && shiftList1.data) || []),
+            ...((shiftList2 && shiftList2.data) || []),
+        ]
+
+        // Aggregate daily totals from shift details
+        let totalTopUps = 0
+        let totalShopSales = 0
+        let totalRefunds = 0
+        let totalExpenses = 0
+
+        for (const shift of allShifts) {
+            const shiftId = shift.shift_id || shift.id
+            if (!shiftId) continue
+            const detail = await fetchIcafeApi(
+                `/cafe/${cafe.icafe_cafe_id}/reports/shiftDetail?shift_id=${shiftId}`
+            )
+            if (!detail || !detail.data) continue
+            const d = detail.data
+
+            const cash = Number(d.cash) || 0
+            const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
+            const shopSales = shopSalesArr.reduce((sum, item) => sum + (parseFloat(String(item.cash || 0)) || 0), 0)
+            const digitalTopups = (Number(d.qr_topup) || 0) + (Number(d.credit_card) || 0)
+            const topUps = (cash - shopSales) + digitalTopups
+            const refunds = Number(d.cash_refund) || 0
+            const expenses = Number(d.center_expenses) || 0
+
+            totalTopUps += topUps
+            totalShopSales += shopSales
+            totalRefunds += refunds
+            totalExpenses += expenses
+        }
+
+        // ── Build QuickBooks JournalEntry ─────────────────────────────────────
+        // Debit lines: income accounts (Top-ups, Shop Sales)
+        // Credit lines: Bank/Cash (offset)
+        // Refunds: debit (reduce income)
+        // Center Expenses: debit expense account
+        const lines = []
+        const description = `${cafeName} Daily Report - ${report_date}`
+
+        // Use a "Bank" account as the offsetting account.
+        // We'll use the first mapped account as the credit offset, or create balanced entries.
+        // QuickBooks JournalEntry requires balanced debits and credits.
+
+        // Income lines (Credit = revenue earned)
+        if (totalTopUps > 0 && mappings.topups_account) {
+            lines.push({
+                Description: `Top-ups - ${cafeName} - ${report_date}`,
+                Amount: Math.round(totalTopUps * 100) / 100,
+                DetailType: 'JournalEntryLineDetail',
+                JournalEntryLineDetail: {
+                    PostingType: 'Credit',
+                    AccountRef: { value: mappings.topups_account },
+                },
+            })
+        }
+
+        if (totalShopSales > 0 && mappings.shop_sales_account) {
+            lines.push({
+                Description: `Shop Sales - ${cafeName} - ${report_date}`,
+                Amount: Math.round(totalShopSales * 100) / 100,
+                DetailType: 'JournalEntryLineDetail',
+                JournalEntryLineDetail: {
+                    PostingType: 'Credit',
+                    AccountRef: { value: mappings.shop_sales_account },
+                },
+            })
+        }
+
+        if (totalRefunds > 0 && mappings.refunds_account) {
+            lines.push({
+                Description: `Refunds - ${cafeName} - ${report_date}`,
+                Amount: Math.round(totalRefunds * 100) / 100,
+                DetailType: 'JournalEntryLineDetail',
+                JournalEntryLineDetail: {
+                    PostingType: 'Debit',
+                    AccountRef: { value: mappings.refunds_account },
+                },
+            })
+        }
+
+        if (totalExpenses > 0 && mappings.center_expenses_account) {
+            lines.push({
+                Description: `Center Expenses - ${cafeName} - ${report_date}`,
+                Amount: Math.round(Math.abs(totalExpenses) * 100) / 100,
+                DetailType: 'JournalEntryLineDetail',
+                JournalEntryLineDetail: {
+                    PostingType: 'Debit',
+                    AccountRef: { value: mappings.center_expenses_account },
+                },
+            })
+        }
+
+        if (lines.length === 0) {
+            return res.status(400).json({ message: `No reportable amounts found for ${cafeName} on ${report_date}. All totals are zero or no account mappings configured.` })
+        }
+
+        // Add an offsetting Debit/Credit line to balance the journal entry
+        // Total credits - total debits = net amount for the offset line
+        let totalCredits = 0
+        let totalDebits = 0
+        for (const line of lines) {
+            if (line.JournalEntryLineDetail.PostingType === 'Credit') {
+                totalCredits += line.Amount
+            } else {
+                totalDebits += line.Amount
+            }
+        }
+        const netOffset = Math.round((totalCredits - totalDebits) * 100) / 100
+
+        if (netOffset > 0) {
+            // More credits than debits → add a Debit line (e.g., cash/bank received)
+            // Use topups_account as the default offset if it's an income account,
+            // or fall back to the first available mapping
+            const offsetAccount = mappings.topups_account || mappings.shop_sales_account
+            lines.push({
+                Description: `Cash/Bank Deposit - ${cafeName} - ${report_date}`,
+                Amount: netOffset,
+                DetailType: 'JournalEntryLineDetail',
+                JournalEntryLineDetail: {
+                    PostingType: 'Debit',
+                    AccountRef: { value: offsetAccount },
+                },
+            })
+        } else if (netOffset < 0) {
+            // More debits than credits → add a Credit line
+            const offsetAccount = mappings.topups_account || mappings.shop_sales_account
+            lines.push({
+                Description: `Cash/Bank - ${cafeName} - ${report_date}`,
+                Amount: Math.abs(netOffset),
+                DetailType: 'JournalEntryLineDetail',
+                JournalEntryLineDetail: {
+                    PostingType: 'Credit',
+                    AccountRef: { value: offsetAccount },
+                },
+            })
+        }
+
+        const journalEntry = {
+            TxnDate: report_date,
+            PrivateNote: description,
+            Line: lines,
+        }
+
+        // ── POST JournalEntry to QuickBooks ──────────────────────────────────
+        const apiBase = getQBApiBase(qbSettings.qb_environment)
+        const qbUrl = `${apiBase}/${qbSettings.realm_id}/journalentry?minorversion=65`
+
+        const qbResult = await qbHttpsRequest(qbUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify(journalEntry),
+        })
+
+        const historyId = randomUUID()
+
+        if (qbResult.statusCode === 200 || qbResult.statusCode === 201) {
+            // Success — log to history
+            await pool.execute(
+                'INSERT INTO qb_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
+                [historyId, cafe_id, cafeName, report_date, 'success', req.user.id]
+            )
+            await logActivity(req.user.id, 'qb_report_sent', `Report sent for ${cafeName} on ${report_date} (Top-ups: ${totalTopUps.toFixed(2)}, Shop Sales: ${totalShopSales.toFixed(2)}, Refunds: ${totalRefunds.toFixed(2)}, Expenses: ${totalExpenses.toFixed(2)})`, getIp(req))
+
+            let qbResponse = {}
+            try { qbResponse = JSON.parse(qbResult.body) } catch {}
+            res.json({ ok: true, id: historyId, qb_journal_id: qbResponse.JournalEntry ? qbResponse.JournalEntry.Id : null, totals: { top_ups: totalTopUps, shop_sales: totalShopSales, refunds: totalRefunds, center_expenses: totalExpenses } })
+        } else {
+            // Failed — log to history with failed status
+            console.error('[QB] JournalEntry creation failed:', qbResult.statusCode, qbResult.body)
+            await pool.execute(
+                'INSERT INTO qb_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
+                [historyId, cafe_id, cafeName, report_date, 'failed', req.user.id]
+            )
+            await logActivity(req.user.id, 'qb_report_failed', `Report failed for ${cafeName} on ${report_date}: QB status ${qbResult.statusCode}`, getIp(req))
+
+            let errorMsg = 'Failed to create journal entry in QuickBooks'
+            try {
+                const errBody = JSON.parse(qbResult.body)
+                if (errBody.Fault && errBody.Fault.Error) {
+                    errorMsg = errBody.Fault.Error.map(e => e.Message || e.Detail).join('; ')
+                }
+            } catch {}
+            res.status(502).json({ message: errorMsg })
+        }
     } catch (e) {
         console.error('[QB] send-report error:', e.message)
         res.status(500).json({ message: 'Server error' })
