@@ -104,3 +104,11 @@ export async function apiGetQBHistory<T>() {
         method: 'get',
     })
 }
+
+// ── Scheduler Logs ───────────────────────────────────────────────────────────
+export async function apiGetQBSchedulerLogs<T>() {
+    return ApiService.fetchDataWithAxios<T>({
+        url: '/quickbooks/scheduler-logs',
+        method: 'get',
+    })
+}

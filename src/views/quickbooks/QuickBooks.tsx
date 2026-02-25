@@ -20,6 +20,7 @@ import {
     apiGetQBSchedule,
     apiSaveQBSchedule,
     apiGetQBHistory,
+    apiGetQBSchedulerLogs,
 } from '@/services/QuickBooksService'
 import useSWR, { mutate } from 'swr'
 import { useCafeStore } from '@/store/cafeStore'
@@ -67,6 +68,18 @@ type QBHistoryItem = {
     report_date: string
     sent_at: string
     status: string
+    sent_by: string
+}
+
+type QBSchedulerLog = {
+    id: number
+    report_date: string
+    run_at: string
+    schedule_type: string
+    success_count: number
+    skip_count: number
+    fail_count: number
+    details: string
 }
 
 type SelectOption = {
@@ -642,6 +655,12 @@ function AutomatedReportCard() {
         { revalidateOnFocus: false },
     )
 
+    const { data: schedulerLogs } = useSWR<QBSchedulerLog[]>(
+        '/quickbooks/scheduler-logs',
+        () => apiGetQBSchedulerLogs<QBSchedulerLog[]>(),
+        { revalidateOnFocus: false, refreshInterval: 60000 },
+    )
+
     const [scheduleType, setScheduleType] = useState('')
     const [scheduleTime, setScheduleTime] = useState('06:00')
     const [saving, setSaving] = useState(false)
@@ -666,7 +685,8 @@ function AutomatedReportCard() {
             mutate('/quickbooks/schedule')
             toast.push(
                 <Notification type="success" title="Schedule Saved">
-                    Automated report schedule saved.
+                    Automated report schedule saved. Times use
+                    Philippines timezone (Asia/Manila).
                 </Notification>,
             )
         } catch {
@@ -709,7 +729,7 @@ function AutomatedReportCard() {
                 {scheduleType === 'daily_at_time' && (
                     <div>
                         <label className="block text-sm font-medium mb-1">
-                            Time
+                            Time (Philippines timezone)
                         </label>
                         <Input
                             type="time"
@@ -737,6 +757,67 @@ function AutomatedReportCard() {
                             {schedule.last_run_date}
                         </span>
                     </p>
+                )}
+                {schedulerLogs && schedulerLogs.length > 0 && (
+                    <div className="mt-4">
+                        <h6 className="text-sm font-semibold mb-2">
+                            Scheduler Run History
+                        </h6>
+                        <div className="overflow-auto max-h-64">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b text-left text-xs text-gray-500">
+                                        <th className="py-1 px-2">
+                                            Report Date
+                                        </th>
+                                        <th className="py-1 px-2">
+                                            Run At
+                                        </th>
+                                        <th className="py-1 px-2">
+                                            Result
+                                        </th>
+                                        <th className="py-1 px-2">
+                                            Details
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {schedulerLogs.map((log) => (
+                                        <tr
+                                            key={log.id}
+                                            className="border-b last:border-0"
+                                        >
+                                            <td className="py-1 px-2">
+                                                {log.report_date}
+                                            </td>
+                                            <td className="py-1 px-2">
+                                                {new Date(
+                                                    log.run_at,
+                                                ).toLocaleString()}
+                                            </td>
+                                            <td className="py-1 px-2">
+                                                <span className="text-emerald-600">
+                                                    {log.success_count}✓
+                                                </span>{' '}
+                                                <span className="text-gray-400">
+                                                    {log.skip_count}⊘
+                                                </span>{' '}
+                                                {log.fail_count > 0 && (
+                                                    <span className="text-red-500">
+                                                        {log.fail_count}
+                                                        ✗
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="py-1 px-2 text-xs text-gray-500 whitespace-pre-line">
+                                                {log.details}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 )}
             </div>
         </Card>
@@ -774,6 +855,7 @@ function SendHistoryCard() {
                                 </th>
                                 <th className="text-left py-2 px-3">Sent At</th>
                                 <th className="text-left py-2 px-3">Status</th>
+                                <th className="text-left py-2 px-3">Sent By</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -804,6 +886,19 @@ function SendHistoryCard() {
                                             {item.status === 'success'
                                                 ? 'Sent'
                                                 : 'Failed'}
+                                        </Tag>
+                                    </td>
+                                    <td className="py-2 px-3">
+                                        <Tag
+                                            className={
+                                                item.sent_by === 'scheduler'
+                                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300'
+                                                    : 'bg-gray-100 text-gray-700 dark:bg-gray-500/20 dark:text-gray-300'
+                                            }
+                                        >
+                                            {item.sent_by === 'scheduler'
+                                                ? 'Auto'
+                                                : 'Manual'}
                                         </Tag>
                                     </td>
                                 </tr>

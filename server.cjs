@@ -213,6 +213,20 @@ async function initDb() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
 
+        // QuickBooks scheduler run logs (visible in the UI)
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS qb_scheduler_logs (
+                id          INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                report_date VARCHAR(10)  NOT NULL,
+                run_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                schedule_type VARCHAR(50) NOT NULL DEFAULT '',
+                success_count INT        NOT NULL DEFAULT 0,
+                skip_count    INT        NOT NULL DEFAULT 0,
+                fail_count    INT        NOT NULL DEFAULT 0,
+                details     TEXT         NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
         // Ensure theme_mode column exists for existing users table
         try {
             await conn.execute("ALTER TABLE users ADD COLUMN theme_mode ENUM('light', 'dark') NOT NULL DEFAULT 'light' AFTER avatar")
@@ -1958,7 +1972,7 @@ app.post('/api/quickbooks/schedule', requireAuth, requireAdmin, async (req, res)
 app.get('/api/quickbooks/history', requireAuth, requireAdmin, async (req, res) => {
     try {
         const [rows] = await pool.execute(
-            'SELECT id, cafe_id, cafe_name, DATE_FORMAT(report_date, "%Y-%m-%d") AS report_date, sent_at, status FROM qb_send_history ORDER BY sent_at DESC LIMIT 100'
+            'SELECT id, cafe_id, cafe_name, DATE_FORMAT(report_date, "%Y-%m-%d") AS report_date, sent_at, status, sent_by FROM qb_send_history ORDER BY sent_at DESC LIMIT 100'
         )
         res.json(rows)
     } catch (e) {
@@ -1967,24 +1981,51 @@ app.get('/api/quickbooks/history', requireAuth, requireAdmin, async (req, res) =
     }
 })
 
+// GET /api/quickbooks/scheduler-logs
+app.get('/api/quickbooks/scheduler-logs', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT id, report_date, run_at, schedule_type, success_count, skip_count, fail_count, details FROM qb_scheduler_logs ORDER BY run_at DESC LIMIT 20'
+        )
+        res.json(rows)
+    } catch (e) {
+        console.error('[QB] scheduler-logs error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
 // ── QuickBooks Automated Report Scheduler ────────────────────────────────────
 // Runs every 60 seconds. Checks qb_schedule table for a configured schedule,
 // then sends reports for all cafes for yesterday's business day.
+// Uses Asia/Manila timezone for time comparisons (Philippines).
+
+function getManilaTime() {
+    const now = new Date()
+    // Get current time parts in Asia/Manila timezone
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+    })
+    const parts = {}
+    for (const { type, value } of formatter.formatToParts(now)) {
+        parts[type] = value
+    }
+    const currentTime = `${parts.hour}:${parts.minute}`
+    // Yesterday in Manila timezone
+    const manilaMs = now.getTime() + (now.getTimezoneOffset() * 60000) + (8 * 3600000) // UTC+8
+    const yesterdayManila = new Date(manilaMs - 86400000)
+    const reportDate = `${yesterdayManila.getFullYear()}-${String(yesterdayManila.getMonth() + 1).padStart(2, '0')}-${String(yesterdayManila.getDate()).padStart(2, '0')}`
+    return { currentTime, reportDate }
+}
+
 async function runScheduledQBReports() {
     try {
         await ensureQBRow('qb_schedule')
         const [[schedule]] = await pool.execute('SELECT * FROM qb_schedule LIMIT 1')
         if (!schedule || !schedule.schedule_type) return // No schedule configured
 
-        // Compute "yesterday" in local server time (business day to report on)
-        const now = new Date()
-        const currentHH = String(now.getHours()).padStart(2, '0')
-        const currentMM = String(now.getMinutes()).padStart(2, '0')
-        const currentTime = `${currentHH}:${currentMM}`
-
-        const yesterday = new Date(now)
-        yesterday.setDate(yesterday.getDate() - 1)
-        const reportDate = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`
+        const { currentTime, reportDate } = getManilaTime()
 
         // Already ran for this date?
         if (schedule.last_run_date === reportDate) return
@@ -1995,19 +2036,19 @@ async function runScheduledQBReports() {
         const schedTime = schedule.schedule_time || '06:00'
 
         if (schedType === 'daily_at_time') {
-            // Run if current time matches the configured time (within the same minute)
+            // Run if current Manila time matches the configured time (within the same minute)
             shouldRun = (currentTime === schedTime)
         } else if (schedType === 'after_business_day') {
-            // Run at 6:00 AM (business day ends at 6 AM)
+            // Run at 6:00 AM Manila time (business day ends at 6 AM)
             shouldRun = (currentTime === '06:00')
         } else if (schedType === 'after_last_shift') {
-            // Run at 6:00 AM (typical last shift end)
+            // Run at 6:00 AM Manila time (typical last shift end)
             shouldRun = (currentTime === '06:00')
         }
 
         if (!shouldRun) return
 
-        console.log(`[QB-Scheduler] Running automated reports for ${reportDate} (schedule: ${schedType}, time: ${schedTime})`)
+        console.log(`[QB-Scheduler] Running automated reports for ${reportDate} (schedule: ${schedType}, time: ${schedTime}, Manila time: ${currentTime})`)
 
         // Get all cafes
         const [cafes] = await pool.execute('SELECT id, name FROM cafes ORDER BY sort_order ASC')
@@ -2019,22 +2060,27 @@ async function runScheduledQBReports() {
         let successCount = 0
         let skipCount = 0
         let failCount = 0
+        const details = []
 
         for (const cafe of cafes) {
             try {
                 const result = await sendQBReportForCafe(cafe.id, reportDate, 'scheduler')
                 if (result.ok) {
                     successCount++
+                    details.push(`✓ ${cafe.name}: sent`)
                     console.log(`[QB-Scheduler] ✓ ${cafe.name}: sent successfully`)
                 } else if (result.status === 409) {
                     skipCount++
+                    details.push(`⊘ ${cafe.name}: already sent`)
                     console.log(`[QB-Scheduler] ⊘ ${cafe.name}: already sent, skipping`)
                 } else {
                     failCount++
+                    details.push(`✗ ${cafe.name}: ${result.message}`)
                     console.log(`[QB-Scheduler] ✗ ${cafe.name}: ${result.message}`)
                 }
             } catch (err) {
                 failCount++
+                details.push(`✗ ${cafe.name}: ${err.message}`)
                 console.error(`[QB-Scheduler] ✗ ${cafe.name}: error —`, err.message)
             }
         }
@@ -2043,6 +2089,12 @@ async function runScheduledQBReports() {
         await pool.execute(
             'UPDATE qb_schedule SET last_run_date=? ORDER BY id LIMIT 1',
             [reportDate]
+        )
+
+        // Log the run to the scheduler_logs table (visible in the UI)
+        await pool.execute(
+            'INSERT INTO qb_scheduler_logs (report_date, schedule_type, success_count, skip_count, fail_count, details) VALUES (?,?,?,?,?,?)',
+            [reportDate, schedType, successCount, skipCount, failCount, details.join('\n')]
         )
 
         console.log(`[QB-Scheduler] Completed: ${successCount} sent, ${skipCount} skipped, ${failCount} failed`)
