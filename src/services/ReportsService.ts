@@ -20,7 +20,6 @@ import type {
     ReportDataWithGames,
     ExpenseItem,
     RefundItem,
-    BillingLogResponse,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
@@ -507,28 +506,68 @@ export async function apiGetBillingLogs(
     let totalPages = 1
 
     do {
-        const response = await icafeAxios.get<BillingLogResponse>(
+        const response = await icafeAxios.get(
             `/cafe/${cafe.cafeId}/billingLogs`,
             {
                 params: { ...params, page },
                 headers: { Authorization: `Bearer ${cafe.apiKey}` },
             },
         )
-        const items = response.data?.data?.items
-        if (!items || items.length === 0) break
 
-        for (const entry of items) {
-            const amount = parseFloat(String(entry.log_money)) || 0
-            if (amount < 0) {
+        // The iCafeCloud API may nest data differently across endpoints.
+        // Try multiple structures: { data: { items: [] } }, { data: [] },
+        // or even top-level { items: [] }.
+        const body = response.data as Record<string, unknown>
+        const inner = body?.data as Record<string, unknown> | unknown[] | undefined
+
+        let entries: unknown[]
+        let paging: Record<string, unknown> | undefined
+
+        if (Array.isArray(inner)) {
+            // response: { code, message, data: [ ...entries ] }
+            entries = inner
+            paging = body?.paging_info as Record<string, unknown> | undefined
+        } else if (inner && typeof inner === 'object') {
+            const innerObj = inner as Record<string, unknown>
+            // response: { code, message, data: { items: [...], paging_info: {...} } }
+            const maybeItems = innerObj.items
+            if (Array.isArray(maybeItems)) {
+                entries = maybeItems
+            } else {
+                // No known structure — try to iterate all array-valued keys
+                entries = Object.values(innerObj).find(Array.isArray) as unknown[] ?? []
+            }
+            paging = innerObj.paging_info as Record<string, unknown> | undefined
+        } else {
+            entries = []
+        }
+
+        if (page === 1) {
+            console.log(`[BillingLogs] page ${page} response keys:`,
+                typeof body === 'object' && body ? Object.keys(body) : typeof body,
+                '| inner type:', Array.isArray(inner) ? 'array' : typeof inner,
+                '| entries found:', entries.length,
+                '| paging:', paging ? JSON.stringify(paging) : 'none')
+        }
+
+        if (entries.length === 0) break
+
+        for (const raw of entries) {
+            const entry = raw as Record<string, unknown>
+            const money = parseFloat(String(entry.log_money ?? entry.money ?? 0)) || 0
+            if (money < 0) {
                 refundItems.push({
-                    log_money: String(entry.log_money),
-                    log_details: String(entry.log_details ?? ''),
+                    log_money: String(entry.log_money ?? entry.money ?? money),
+                    log_details: String(entry.log_details ?? entry.log_detail ?? entry.details ?? ''),
                 })
             }
         }
 
-        const paging = response.data?.data?.paging_info
-        totalPages = paging?.pages ?? 1
+        if (!paging) {
+            // No paging info available – can only read the current page
+            break
+        }
+        totalPages = Number(paging.pages ?? paging.total_pages ?? 1) || 1
         page++
     } while (page <= totalPages)
 
