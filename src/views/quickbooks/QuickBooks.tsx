@@ -27,8 +27,10 @@ import { useCafeStore } from '@/store/cafeStore'
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type QBSettings = {
-    qb_client_id: string
-    qb_client_secret: string
+    sandbox_client_id: string
+    sandbox_client_secret: string
+    production_client_id: string
+    production_client_secret: string
     qb_redirect_uri: string
     qb_environment: string
     is_connected: boolean
@@ -79,8 +81,10 @@ function ConnectionSettingsCard() {
         { revalidateOnFocus: false },
     )
 
-    const [clientId, setClientId] = useState('')
-    const [clientSecret, setClientSecret] = useState('')
+    const [sandboxClientId, setSandboxClientId] = useState('')
+    const [sandboxClientSecret, setSandboxClientSecret] = useState('')
+    const [productionClientId, setProductionClientId] = useState('')
+    const [productionClientSecret, setProductionClientSecret] = useState('')
     const [redirectUri, setRedirectUri] = useState('')
     const [environment, setEnvironment] = useState('sandbox')
     const [saving, setSaving] = useState(false)
@@ -88,8 +92,10 @@ function ConnectionSettingsCard() {
 
     useEffect(() => {
         if (data) {
-            setClientId(data.qb_client_id || '')
-            setClientSecret(data.qb_client_secret || '')
+            setSandboxClientId(data.sandbox_client_id || '')
+            setSandboxClientSecret(data.sandbox_client_secret || '')
+            setProductionClientId(data.production_client_id || '')
+            setProductionClientSecret(data.production_client_secret || '')
             setRedirectUri(data.qb_redirect_uri || '')
             setEnvironment(data.qb_environment || 'sandbox')
         }
@@ -124,8 +130,10 @@ function ConnectionSettingsCard() {
         setSaving(true)
         try {
             await apiSaveQBSettings({
-                qb_client_id: clientId,
-                qb_client_secret: clientSecret,
+                sandbox_client_id: sandboxClientId,
+                sandbox_client_secret: sandboxClientSecret,
+                production_client_id: productionClientId,
+                production_client_secret: productionClientSecret,
                 qb_redirect_uri: redirectUri,
                 qb_environment: environment,
             })
@@ -203,29 +211,6 @@ function ConnectionSettingsCard() {
             <div className="flex flex-col gap-4">
                 <div>
                     <label className="block text-sm font-medium mb-1">
-                        QB Client ID
-                    </label>
-                    <Input
-                        placeholder="Enter QuickBooks Client ID"
-                        value={clientId}
-                        onChange={(e) => setClientId((e.target as HTMLInputElement).value)}
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium mb-1">
-                        QB Client Secret
-                    </label>
-                    <Input
-                        placeholder="Enter QuickBooks Client Secret"
-                        value={clientSecret}
-                        type="password"
-                        onChange={(e) =>
-                            setClientSecret((e.target as HTMLInputElement).value)
-                        }
-                    />
-                </div>
-                <div>
-                    <label className="block text-sm font-medium mb-1">
                         Environment
                     </label>
                     <Select
@@ -245,6 +230,62 @@ function ConnectionSettingsCard() {
                             )
                         }
                     />
+                </div>
+                <div className="border rounded-lg p-4">
+                    <h6 className="font-semibold mb-3">Sandbox Credentials</h6>
+                    <div className="flex flex-col gap-3">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">
+                                Client ID
+                            </label>
+                            <Input
+                                placeholder="Enter Sandbox Client ID"
+                                value={sandboxClientId}
+                                onChange={(e) => setSandboxClientId((e.target as HTMLInputElement).value)}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">
+                                Client Secret
+                            </label>
+                            <Input
+                                placeholder="Enter Sandbox Client Secret"
+                                value={sandboxClientSecret}
+                                type="password"
+                                onChange={(e) =>
+                                    setSandboxClientSecret((e.target as HTMLInputElement).value)
+                                }
+                            />
+                        </div>
+                    </div>
+                </div>
+                <div className="border rounded-lg p-4">
+                    <h6 className="font-semibold mb-3">Production Credentials</h6>
+                    <div className="flex flex-col gap-3">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">
+                                Client ID
+                            </label>
+                            <Input
+                                placeholder="Enter Production Client ID"
+                                value={productionClientId}
+                                onChange={(e) => setProductionClientId((e.target as HTMLInputElement).value)}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">
+                                Client Secret
+                            </label>
+                            <Input
+                                placeholder="Enter Production Client Secret"
+                                value={productionClientSecret}
+                                type="password"
+                                onChange={(e) =>
+                                    setProductionClientSecret((e.target as HTMLInputElement).value)
+                                }
+                            />
+                        </div>
+                    </div>
                 </div>
                 <div>
                     <label className="block text-sm font-medium mb-1">
@@ -284,7 +325,12 @@ function ConnectionSettingsCard() {
                             variant="solid"
                             loading={connecting}
                             onClick={handleConnect}
-                            disabled={!clientId || !clientSecret || !redirectUri}
+                            disabled={
+                                !redirectUri ||
+                                (environment === 'sandbox'
+                                    ? !sandboxClientId || !sandboxClientSecret
+                                    : !productionClientId || !productionClientSecret)
+                            }
                         >
                             Connect to QuickBooks
                         </Button>

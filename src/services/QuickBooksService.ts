@@ -9,8 +9,10 @@ export async function apiGetQBSettings<T>() {
 }
 
 export async function apiSaveQBSettings<T>(data: {
-    qb_client_id: string
-    qb_client_secret: string
+    sandbox_client_id: string
+    sandbox_client_secret: string
+    production_client_id: string
+    production_client_secret: string
     qb_redirect_uri: string
     qb_environment: string
 }) {

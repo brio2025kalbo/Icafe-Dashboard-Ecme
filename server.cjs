@@ -105,8 +105,10 @@ async function initDb() {
         await conn.execute(`
             CREATE TABLE IF NOT EXISTS qb_settings (
                 id         INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                qb_client_id     VARCHAR(500) NOT NULL DEFAULT '',
-                qb_client_secret VARCHAR(500) NOT NULL DEFAULT '',
+                sandbox_client_id       VARCHAR(500) NOT NULL DEFAULT '',
+                sandbox_client_secret   VARCHAR(500) NOT NULL DEFAULT '',
+                production_client_id    VARCHAR(500) NOT NULL DEFAULT '',
+                production_client_secret VARCHAR(500) NOT NULL DEFAULT '',
                 qb_redirect_uri  VARCHAR(500) NOT NULL DEFAULT '',
                 qb_environment   VARCHAR(20)  NOT NULL DEFAULT 'sandbox',
                 is_connected     TINYINT(1)   NOT NULL DEFAULT 0,
@@ -118,8 +120,12 @@ async function initDb() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
 
-        // Migrate: add OAuth and environment columns if they don't exist yet
+        // Migrate: add columns if they don't exist yet
         for (const col of [
+            { name: 'sandbox_client_id',       def: "VARCHAR(500) NOT NULL DEFAULT '' AFTER id" },
+            { name: 'sandbox_client_secret',   def: "VARCHAR(500) NOT NULL DEFAULT '' AFTER sandbox_client_id" },
+            { name: 'production_client_id',    def: "VARCHAR(500) NOT NULL DEFAULT '' AFTER sandbox_client_secret" },
+            { name: 'production_client_secret', def: "VARCHAR(500) NOT NULL DEFAULT '' AFTER production_client_id" },
             { name: 'qb_environment',   def: "VARCHAR(20) NOT NULL DEFAULT 'sandbox' AFTER qb_redirect_uri" },
             { name: 'access_token',     def: 'TEXT NULL AFTER is_connected' },
             { name: 'refresh_token',    def: 'TEXT NULL AFTER access_token' },
@@ -133,6 +139,22 @@ async function initDb() {
                 if (err.code !== 'ER_DUP_FIELDNAME') {
                     console.error(`[DB] Error adding ${col.name}:`, err.message)
                 }
+            }
+        }
+
+        // Migrate: copy old qb_client_id/qb_client_secret into sandbox fields if they exist
+        try {
+            const [[hasOld]] = await conn.execute("SELECT COUNT(*) AS cnt FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='qb_settings' AND column_name='qb_client_id'")
+            if (hasOld && hasOld.cnt > 0) {
+                await conn.execute("UPDATE qb_settings SET sandbox_client_id = qb_client_id, sandbox_client_secret = qb_client_secret WHERE sandbox_client_id = '' AND qb_client_id != ''")
+                await conn.execute("ALTER TABLE qb_settings DROP COLUMN qb_client_id")
+                await conn.execute("ALTER TABLE qb_settings DROP COLUMN qb_client_secret")
+                console.log('[DB] Migrated old qb_client_id/qb_client_secret to sandbox fields')
+            }
+        } catch (err) {
+            // Columns may already have been dropped
+            if (err.code !== 'ER_CANT_DROP_FIELD_OR_KEY' && err.code !== 'ER_BAD_FIELD_ERROR') {
+                console.error('[DB] Migration error:', err.message)
             }
         }
 
@@ -1097,6 +1119,15 @@ function getQBApiBase(environment) {
     return environment === 'production' ? QB_API_BASE_PRODUCTION : QB_API_BASE_SANDBOX
 }
 
+// Helper: get active client credentials based on the stored environment
+function getQBCredentials(settings) {
+    const env = settings.qb_environment || 'sandbox'
+    if (env === 'production') {
+        return { clientId: settings.production_client_id, clientSecret: settings.production_client_secret }
+    }
+    return { clientId: settings.sandbox_client_id, clientSecret: settings.sandbox_client_secret }
+}
+
 // Helper: ensure single-row config tables have a row
 async function ensureQBRow(table) {
     const [[row]] = await pool.execute(`SELECT id FROM ${table} LIMIT 1`)
@@ -1131,7 +1162,8 @@ function qbHttpsRequest(url, options = {}) {
 
 // Helper: refresh the access token using the refresh token
 async function refreshQBToken(settings) {
-    const basicAuth = Buffer.from(`${settings.qb_client_id}:${settings.qb_client_secret}`).toString('base64')
+    const { clientId, clientSecret } = getQBCredentials(settings)
+    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
     const postData = `grant_type=refresh_token&refresh_token=${encodeURIComponent(settings.refresh_token)}`
     const result = await qbHttpsRequest(QB_TOKEN_URL, {
         method: 'POST',
@@ -1178,8 +1210,10 @@ app.get('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res) 
         await ensureQBRow('qb_settings')
         const [[row]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
         res.json({
-            qb_client_id: row.qb_client_id,
-            qb_client_secret: row.qb_client_secret,
+            sandbox_client_id: row.sandbox_client_id,
+            sandbox_client_secret: row.sandbox_client_secret,
+            production_client_id: row.production_client_id,
+            production_client_secret: row.production_client_secret,
             qb_redirect_uri: row.qb_redirect_uri,
             qb_environment: row.qb_environment || 'sandbox',
             is_connected: !!row.is_connected,
@@ -1193,12 +1227,12 @@ app.get('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res) 
 
 // POST /api/quickbooks/settings
 app.post('/api/quickbooks/settings', requireAuth, requireAdmin, async (req, res) => {
-    const { qb_client_id, qb_client_secret, qb_redirect_uri, qb_environment } = req.body || {}
+    const { sandbox_client_id, sandbox_client_secret, production_client_id, production_client_secret, qb_redirect_uri, qb_environment } = req.body || {}
     try {
         await ensureQBRow('qb_settings')
         await pool.execute(
-            'UPDATE qb_settings SET qb_client_id=?, qb_client_secret=?, qb_redirect_uri=?, qb_environment=? ORDER BY id LIMIT 1',
-            [qb_client_id || '', qb_client_secret || '', qb_redirect_uri || '', qb_environment === 'production' ? 'production' : 'sandbox']
+            'UPDATE qb_settings SET sandbox_client_id=?, sandbox_client_secret=?, production_client_id=?, production_client_secret=?, qb_redirect_uri=?, qb_environment=? ORDER BY id LIMIT 1',
+            [sandbox_client_id || '', sandbox_client_secret || '', production_client_id || '', production_client_secret || '', qb_redirect_uri || '', qb_environment === 'production' ? 'production' : 'sandbox']
         )
         await logActivity(req.user.id, 'qb_settings_update', 'QuickBooks settings updated', getIp(req))
         res.json({ ok: true })
@@ -1213,11 +1247,15 @@ app.get('/api/quickbooks/auth-url', requireAuth, requireAdmin, async (req, res) 
     try {
         await ensureQBRow('qb_settings')
         const [[settings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
-        if (!settings.qb_client_id || !settings.qb_client_secret || !settings.qb_redirect_uri) {
-            return res.status(400).json({ message: 'Please save your QuickBooks Client ID, Client Secret, and Redirect URI first.' })
+        if (!settings.qb_redirect_uri) {
+            return res.status(400).json({ message: 'Please save your Redirect URI first.' })
+        }
+        const { clientId, clientSecret } = getQBCredentials(settings)
+        if (!clientId || !clientSecret) {
+            return res.status(400).json({ message: `Please save your ${settings.qb_environment || 'sandbox'} Client ID and Client Secret first.` })
         }
         const state = randomUUID()
-        const authUrl = `${QB_AUTH_URL}?client_id=${encodeURIComponent(settings.qb_client_id)}&response_type=code&scope=${encodeURIComponent(QB_SCOPE)}&redirect_uri=${encodeURIComponent(settings.qb_redirect_uri)}&state=${state}`
+        const authUrl = `${QB_AUTH_URL}?client_id=${encodeURIComponent(clientId)}&response_type=code&scope=${encodeURIComponent(QB_SCOPE)}&redirect_uri=${encodeURIComponent(settings.qb_redirect_uri)}&state=${state}`
         res.json({ auth_url: authUrl, state })
     } catch (e) {
         console.error('[QB] auth-url error:', e.message)
@@ -1239,12 +1277,16 @@ app.get('/api/quickbooks/callback', async (req, res) => {
     try {
         await ensureQBRow('qb_settings')
         const [[settings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
-        if (!settings.qb_client_id || !settings.qb_client_secret) {
+        if (!settings.qb_redirect_uri) {
+            return res.redirect('/quickbooks?qb_error=missing_credentials')
+        }
+        const { clientId, clientSecret } = getQBCredentials(settings)
+        if (!clientId || !clientSecret) {
             return res.redirect('/quickbooks?qb_error=missing_credentials')
         }
 
         // Exchange authorization code for tokens
-        const basicAuth = Buffer.from(`${settings.qb_client_id}:${settings.qb_client_secret}`).toString('base64')
+        const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
         const postData = `grant_type=authorization_code&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(settings.qb_redirect_uri)}`
 
         const result = await qbHttpsRequest(QB_TOKEN_URL, {
@@ -1289,22 +1331,25 @@ app.post('/api/quickbooks/disconnect', requireAuth, requireAdmin, async (req, re
         const [[settings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
 
         // Revoke the token at QuickBooks if we have one
-        if (settings.refresh_token && settings.qb_client_id && settings.qb_client_secret) {
-            try {
-                const basicAuth = Buffer.from(`${settings.qb_client_id}:${settings.qb_client_secret}`).toString('base64')
-                const postData = JSON.stringify({ token: settings.refresh_token })
-                await qbHttpsRequest(QB_REVOKE_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Basic ${basicAuth}`,
-                        'Accept': 'application/json',
-                    },
-                    body: postData,
-                })
-                console.log('[QB] Token revoked at QuickBooks')
-            } catch (revokeErr) {
-                console.error('[QB] Token revoke error (non-critical):', revokeErr.message)
+        if (settings.refresh_token) {
+            const { clientId, clientSecret } = getQBCredentials(settings)
+            if (clientId && clientSecret) {
+                try {
+                    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
+                    const postData = JSON.stringify({ token: settings.refresh_token })
+                    await qbHttpsRequest(QB_REVOKE_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Basic ${basicAuth}`,
+                            'Accept': 'application/json',
+                        },
+                        body: postData,
+                    })
+                    console.log('[QB] Token revoked at QuickBooks')
+                } catch (revokeErr) {
+                    console.error('[QB] Token revoke error (non-critical):', revokeErr.message)
+                }
             }
         }
 
