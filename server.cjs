@@ -166,9 +166,20 @@ async function initDb() {
                 shop_sales_account    VARCHAR(255) NOT NULL DEFAULT '',
                 refunds_account       VARCHAR(255) NOT NULL DEFAULT '',
                 center_expenses_account VARCHAR(255) NOT NULL DEFAULT '',
+                deposit_account       VARCHAR(255) NOT NULL DEFAULT '',
                 updated_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
+
+        // Migrate: add deposit_account column if it doesn't exist
+        try {
+            await conn.execute("ALTER TABLE qb_account_mappings ADD COLUMN deposit_account VARCHAR(255) NOT NULL DEFAULT '' AFTER center_expenses_account")
+            console.log('[DB] Added deposit_account column to qb_account_mappings')
+        } catch (err) {
+            if (err.code !== 'ER_DUP_FIELDNAME') {
+                console.error('[DB] Error adding deposit_account:', err.message)
+            }
+        }
 
         // QuickBooks automated report schedule
         await conn.execute(`
@@ -1426,6 +1437,7 @@ app.get('/api/quickbooks/mappings', requireAuth, requireAdmin, async (req, res) 
             shop_sales_account: row.shop_sales_account,
             refunds_account: row.refunds_account,
             center_expenses_account: row.center_expenses_account,
+            deposit_account: row.deposit_account || '',
         })
     } catch (e) {
         console.error('[QB] mappings get error:', e.message)
@@ -1435,12 +1447,12 @@ app.get('/api/quickbooks/mappings', requireAuth, requireAdmin, async (req, res) 
 
 // POST /api/quickbooks/mappings
 app.post('/api/quickbooks/mappings', requireAuth, requireAdmin, async (req, res) => {
-    const { topups_account, shop_sales_account, refunds_account, center_expenses_account } = req.body || {}
+    const { topups_account, shop_sales_account, refunds_account, center_expenses_account, deposit_account } = req.body || {}
     try {
         await ensureQBRow('qb_account_mappings')
         await pool.execute(
-            'UPDATE qb_account_mappings SET topups_account=?, shop_sales_account=?, refunds_account=?, center_expenses_account=? ORDER BY id LIMIT 1',
-            [topups_account || '', shop_sales_account || '', refunds_account || '', center_expenses_account || '']
+            'UPDATE qb_account_mappings SET topups_account=?, shop_sales_account=?, refunds_account=?, center_expenses_account=?, deposit_account=? ORDER BY id LIMIT 1',
+            [topups_account || '', shop_sales_account || '', refunds_account || '', center_expenses_account || '', deposit_account || '']
         )
         await logActivity(req.user.id, 'qb_mappings_update', 'QuickBooks account mappings updated', getIp(req))
         res.json({ ok: true })
@@ -1664,30 +1676,30 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
         }
         const netOffset = Math.round((totalCredits - totalDebits) * 100) / 100
 
+        if (!mappings.deposit_account) {
+            return res.status(400).json({ message: 'No Deposit To (Cash/Bank) account configured. Please set up the deposit account in Account Mappings first.' })
+        }
+
         if (netOffset > 0) {
-            // More credits than debits → add a Debit line (e.g., cash/bank received)
-            // Use topups_account as the default offset if it's an income account,
-            // or fall back to the first available mapping
-            const offsetAccount = mappings.topups_account || mappings.shop_sales_account
+            // More credits than debits → add a Debit line to Cash/Bank account
             lines.push({
                 Description: `Cash/Bank Deposit - ${cafeName} - ${report_date}`,
                 Amount: netOffset,
                 DetailType: 'JournalEntryLineDetail',
                 JournalEntryLineDetail: {
                     PostingType: 'Debit',
-                    AccountRef: { value: offsetAccount },
+                    AccountRef: { value: mappings.deposit_account },
                 },
             })
         } else if (netOffset < 0) {
-            // More debits than credits → add a Credit line
-            const offsetAccount = mappings.topups_account || mappings.shop_sales_account
+            // More debits than credits → add a Credit line to Cash/Bank account
             lines.push({
                 Description: `Cash/Bank - ${cafeName} - ${report_date}`,
                 Amount: Math.abs(netOffset),
                 DetailType: 'JournalEntryLineDetail',
                 JournalEntryLineDetail: {
                     PostingType: 'Credit',
-                    AccountRef: { value: offsetAccount },
+                    AccountRef: { value: mappings.deposit_account },
                 },
             })
         }

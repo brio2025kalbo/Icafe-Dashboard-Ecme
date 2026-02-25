@@ -57,6 +57,7 @@ export async function apiSaveQBMappings<T>(data: {
     shop_sales_account: string
     refunds_account: string
     center_expenses_account: string
+    deposit_account: string
 }) {
     return ApiService.fetchDataWithAxios<T>({
         url: '/quickbooks/mappings',

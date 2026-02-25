@@ -52,6 +52,7 @@ type QBMappings = {
     shop_sales_account: string
     refunds_account: string
     center_expenses_account: string
+    deposit_account: string
 }
 
 type QBSchedule = {
@@ -368,6 +369,7 @@ function AccountMappingsCard() {
     const [shopSales, setShopSales] = useState('')
     const [refunds, setRefunds] = useState('')
     const [centerExpenses, setCenterExpenses] = useState('')
+    const [depositAccount, setDepositAccount] = useState('')
     const [saving, setSaving] = useState(false)
 
     useEffect(() => {
@@ -376,6 +378,7 @@ function AccountMappingsCard() {
             setShopSales(mappings.shop_sales_account || '')
             setRefunds(mappings.refunds_account || '')
             setCenterExpenses(mappings.center_expenses_account || '')
+            setDepositAccount(mappings.deposit_account || '')
         }
     }, [mappings])
 
@@ -392,6 +395,7 @@ function AccountMappingsCard() {
                 shop_sales_account: shopSales,
                 refunds_account: refunds,
                 center_expenses_account: centerExpenses,
+                deposit_account: depositAccount,
             })
             mutate('/quickbooks/mappings')
             toast.push(
@@ -485,6 +489,25 @@ function AccountMappingsCard() {
                                     }
                                     onChange={(opt) =>
                                         setCenterExpenses(
+                                            (opt as SelectOption)?.value || '',
+                                        )
+                                    }
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">
+                                    Deposit To (Cash/Bank)
+                                </label>
+                                <Select
+                                    placeholder="Select Cash/Bank account for deposits"
+                                    options={accountOptions}
+                                    value={
+                                        accountOptions.find(
+                                            (o) => o.value === depositAccount,
+                                        ) || null
+                                    }
+                                    onChange={(opt) =>
+                                        setDepositAccount(
                                             (opt as SelectOption)?.value || '',
                                         )
                                     }
