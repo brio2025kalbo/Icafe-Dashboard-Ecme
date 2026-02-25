@@ -1,5 +1,6 @@
 import dashboardsRoute from './dashboardsRoute'
 import conceptsRoute from './conceptsRoute'
+import quickbooksRoute from './quickbooksRoute'
 import { lazy } from 'react'
 import uiComponentsRoute from './uiComponentsRoute'
 import authRoute from './authRoute'
@@ -11,6 +12,7 @@ export const publicRoutes: Routes = [...authRoute]
 export const protectedRoutes: Routes = [
     ...dashboardsRoute,
     ...conceptsRoute,
+    ...quickbooksRoute,
     ...othersRoute,
     /** Example purpose only, please remove 
     {
