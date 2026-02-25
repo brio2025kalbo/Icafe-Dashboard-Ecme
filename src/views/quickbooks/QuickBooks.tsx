@@ -58,6 +58,7 @@ type QBMappings = {
 type QBSchedule = {
     schedule_type: string
     schedule_time: string
+    last_run_date: string
 }
 
 type QBHistoryItem = {
@@ -729,6 +730,14 @@ function AutomatedReportCard() {
                 >
                     Save Schedule
                 </Button>
+                {schedule?.last_run_date && (
+                    <p className="text-sm text-gray-500 mt-2">
+                        Last automated run: reports for{' '}
+                        <span className="font-medium">
+                            {schedule.last_run_date}
+                        </span>
+                    </p>
+                )}
             </div>
         </Card>
     )

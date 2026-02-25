@@ -187,9 +187,17 @@ async function initDb() {
                 id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
                 schedule_type VARCHAR(50)  NOT NULL DEFAULT '',
                 schedule_time VARCHAR(10)  NOT NULL DEFAULT '06:00',
+                last_run_date VARCHAR(10)  NOT NULL DEFAULT '',
                 updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
+
+        // Ensure last_run_date column exists for existing qb_schedule tables
+        try {
+            await conn.execute("ALTER TABLE qb_schedule ADD COLUMN last_run_date VARCHAR(10) NOT NULL DEFAULT '' AFTER schedule_time")
+        } catch (err) {
+            if (err.code !== 'ER_DUP_FIELDNAME') throw err
+        }
 
         // QuickBooks send history (unique per cafe + date to prevent duplicates)
         await conn.execute(`
@@ -1463,47 +1471,44 @@ app.post('/api/quickbooks/mappings', requireAuth, requireAdmin, async (req, res)
 })
 
 // POST /api/quickbooks/send-report
-app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, res) => {
-    const { cafe_id, report_date } = req.body || {}
-    if (!cafe_id || !report_date) {
-        return res.status(400).json({ message: 'cafe_id and report_date required' })
+// ── Core QB report-sending logic (shared by HTTP endpoint and scheduler) ─────
+// Returns { ok, message, totals?, qb_journal_id? }
+async function sendQBReportForCafe(cafe_id, report_date, sent_by) {
+    // Check for duplicate
+    const [[existing]] = await pool.execute(
+        'SELECT id FROM qb_send_history WHERE cafe_id=? AND report_date=?',
+        [cafe_id, report_date]
+    )
+    if (existing) {
+        return { ok: false, status: 409, message: 'Report for this cafe and date has already been sent' }
     }
-    try {
-        // Check for duplicate
-        const [[existing]] = await pool.execute(
-            'SELECT id FROM qb_send_history WHERE cafe_id=? AND report_date=?',
-            [cafe_id, report_date]
-        )
-        if (existing) {
-            return res.status(409).json({ message: 'Report for this cafe and date has already been sent' })
-        }
 
-        // Look up cafe details (name, iCafe cafe_id, api_key)
-        const [[cafe]] = await pool.execute('SELECT name, cafe_id AS icafe_cafe_id, api_key FROM cafes WHERE id=?', [cafe_id])
-        if (!cafe) {
-            return res.status(404).json({ message: 'Cafe not found' })
-        }
-        const cafeName = cafe.name
+    // Look up cafe details (name, iCafe cafe_id, api_key)
+    const [[cafe]] = await pool.execute('SELECT name, cafe_id AS icafe_cafe_id, api_key FROM cafes WHERE id=?', [cafe_id])
+    if (!cafe) {
+        return { ok: false, status: 404, message: 'Cafe not found' }
+    }
+    const cafeName = cafe.name
 
-        // Verify QuickBooks is connected
-        await ensureQBRow('qb_settings')
-        const [[qbSettings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
-        if (!qbSettings.is_connected || !qbSettings.realm_id) {
-            return res.status(400).json({ message: 'QuickBooks is not connected. Please connect first.' })
-        }
+    // Verify QuickBooks is connected
+    await ensureQBRow('qb_settings')
+    const [[qbSettings]] = await pool.execute('SELECT * FROM qb_settings LIMIT 1')
+    if (!qbSettings.is_connected || !qbSettings.realm_id) {
+        return { ok: false, status: 400, message: 'QuickBooks is not connected. Please connect first.' }
+    }
 
-        // Get valid QB access token
-        const accessToken = await getValidQBToken()
-        if (!accessToken) {
-            return res.status(401).json({ message: 'QuickBooks session expired. Please reconnect.' })
-        }
+    // Get valid QB access token
+    const accessToken = await getValidQBToken()
+    if (!accessToken) {
+        return { ok: false, status: 401, message: 'QuickBooks session expired. Please reconnect.' }
+    }
 
-        // Load account mappings
-        await ensureQBRow('qb_account_mappings')
-        const [[mappings]] = await pool.execute('SELECT * FROM qb_account_mappings LIMIT 1')
-        if (!mappings.topups_account && !mappings.shop_sales_account && !mappings.refunds_account && !mappings.center_expenses_account) {
-            return res.status(400).json({ message: 'No account mappings configured. Please set up account mappings first.' })
-        }
+    // Load account mappings
+    await ensureQBRow('qb_account_mappings')
+    const [[mappings]] = await pool.execute('SELECT * FROM qb_account_mappings LIMIT 1')
+    if (!mappings.topups_account && !mappings.shop_sales_account && !mappings.refunds_account && !mappings.center_expenses_account) {
+        return { ok: false, status: 400, message: 'No account mappings configured. Please set up account mappings first.' }
+    }
 
         // ── Fetch daily totals from iCafe API ────────────────────────────────
         // Compute nextDate (report_date + 1 day) for the business-day shift query
@@ -1800,7 +1805,7 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
         }
 
         if (lines.length === 0) {
-            return res.status(400).json({ message: `No reportable amounts found for ${cafeName} on ${report_date}. All totals are zero or no account mappings configured.` })
+            return { ok: false, status: 400, message: `No reportable amounts found for ${cafeName} on ${report_date}. All totals are zero or no account mappings configured.` }
         }
 
         // Add an offsetting Debit/Credit line to balance the journal entry
@@ -1817,7 +1822,7 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
         const netOffset = Math.round((totalCredits - totalDebits) * 100) / 100
 
         if (!mappings.deposit_account) {
-            return res.status(400).json({ message: 'No Deposit To (Cash/Bank) account configured. Please set up the deposit account in Account Mappings first.' })
+            return { ok: false, status: 400, message: 'No Deposit To (Cash/Bank) account configured. Please set up the deposit account in Account Mappings first.' }
         }
 
         if (netOffset > 0) {
@@ -1870,21 +1875,21 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
             // Success — log to history
             await pool.execute(
                 'INSERT INTO qb_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
-                [historyId, cafe_id, cafeName, report_date, 'success', req.user.id]
+                [historyId, cafe_id, cafeName, report_date, 'success', sent_by]
             )
-            await logActivity(req.user.id, 'qb_report_sent', `Report sent for ${cafeName} on ${report_date} (Top-ups: ${totalTopUps.toFixed(2)}, Shop Sales: ${totalShopSales.toFixed(2)}, Refunds: ${totalRefunds.toFixed(2)}, Expenses: ${totalExpenses.toFixed(2)})`, getIp(req))
+            await logActivity(sent_by, 'qb_report_sent', `Report sent for ${cafeName} on ${report_date} (Top-ups: ${totalTopUps.toFixed(2)}, Shop Sales: ${totalShopSales.toFixed(2)}, Refunds: ${totalRefunds.toFixed(2)}, Expenses: ${totalExpenses.toFixed(2)})`)
 
             let qbResponse = {}
             try { qbResponse = JSON.parse(qbResult.body) } catch {}
-            res.json({ ok: true, id: historyId, qb_journal_id: qbResponse.JournalEntry ? qbResponse.JournalEntry.Id : null, totals: { top_ups: totalTopUps, shop_sales: totalShopSales, refunds: totalRefunds, center_expenses: totalExpenses } })
+            return { ok: true, id: historyId, qb_journal_id: qbResponse.JournalEntry ? qbResponse.JournalEntry.Id : null, totals: { top_ups: totalTopUps, shop_sales: totalShopSales, refunds: totalRefunds, center_expenses: totalExpenses } }
         } else {
             // Failed — log to history with failed status
             console.error('[QB] JournalEntry creation failed:', qbResult.statusCode, qbResult.body)
             await pool.execute(
                 'INSERT INTO qb_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
-                [historyId, cafe_id, cafeName, report_date, 'failed', req.user.id]
+                [historyId, cafe_id, cafeName, report_date, 'failed', sent_by]
             )
-            await logActivity(req.user.id, 'qb_report_failed', `Report failed for ${cafeName} on ${report_date}: QB status ${qbResult.statusCode}`, getIp(req))
+            await logActivity(sent_by, 'qb_report_failed', `Report failed for ${cafeName} on ${report_date}: QB status ${qbResult.statusCode}`)
 
             let errorMsg = 'Failed to create journal entry in QuickBooks'
             try {
@@ -1893,7 +1898,22 @@ app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, r
                     errorMsg = errBody.Fault.Error.map(e => e.Message || e.Detail).join('; ')
                 }
             } catch {}
-            res.status(502).json({ message: errorMsg })
+            return { ok: false, status: 502, message: errorMsg }
+        }
+}
+
+// ── HTTP endpoint wrapping the core function ─────────────────────────────────
+app.post('/api/quickbooks/send-report', requireAuth, requireAdmin, async (req, res) => {
+    const { cafe_id, report_date } = req.body || {}
+    if (!cafe_id || !report_date) {
+        return res.status(400).json({ message: 'cafe_id and report_date required' })
+    }
+    try {
+        const result = await sendQBReportForCafe(cafe_id, report_date, req.user.id)
+        if (result.ok) {
+            res.json(result)
+        } else {
+            res.status(result.status || 500).json({ message: result.message })
         }
     } catch (e) {
         console.error('[QB] send-report error:', e.message)
@@ -1909,6 +1929,7 @@ app.get('/api/quickbooks/schedule', requireAuth, requireAdmin, async (req, res) 
         res.json({
             schedule_type: row.schedule_type,
             schedule_time: row.schedule_time,
+            last_run_date: row.last_run_date || '',
         })
     } catch (e) {
         console.error('[QB] schedule get error:', e.message)
@@ -1945,6 +1966,93 @@ app.get('/api/quickbooks/history', requireAuth, requireAdmin, async (req, res) =
         res.status(500).json({ message: 'Server error' })
     }
 })
+
+// ── QuickBooks Automated Report Scheduler ────────────────────────────────────
+// Runs every 60 seconds. Checks qb_schedule table for a configured schedule,
+// then sends reports for all cafes for yesterday's business day.
+async function runScheduledQBReports() {
+    try {
+        await ensureQBRow('qb_schedule')
+        const [[schedule]] = await pool.execute('SELECT * FROM qb_schedule LIMIT 1')
+        if (!schedule || !schedule.schedule_type) return // No schedule configured
+
+        // Compute "yesterday" in local server time (business day to report on)
+        const now = new Date()
+        const currentHH = String(now.getHours()).padStart(2, '0')
+        const currentMM = String(now.getMinutes()).padStart(2, '0')
+        const currentTime = `${currentHH}:${currentMM}`
+
+        const yesterday = new Date(now)
+        yesterday.setDate(yesterday.getDate() - 1)
+        const reportDate = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`
+
+        // Already ran for this date?
+        if (schedule.last_run_date === reportDate) return
+
+        // Determine if it's time to run
+        let shouldRun = false
+        const schedType = schedule.schedule_type
+        const schedTime = schedule.schedule_time || '06:00'
+
+        if (schedType === 'daily_at_time') {
+            // Run if current time matches the configured time (within the same minute)
+            shouldRun = (currentTime === schedTime)
+        } else if (schedType === 'after_business_day') {
+            // Run at 6:00 AM (business day ends at 6 AM)
+            shouldRun = (currentTime === '06:00')
+        } else if (schedType === 'after_last_shift') {
+            // Run at 6:00 AM (typical last shift end)
+            shouldRun = (currentTime === '06:00')
+        }
+
+        if (!shouldRun) return
+
+        console.log(`[QB-Scheduler] Running automated reports for ${reportDate} (schedule: ${schedType}, time: ${schedTime})`)
+
+        // Get all cafes
+        const [cafes] = await pool.execute('SELECT id, name FROM cafes ORDER BY sort_order ASC')
+        if (!cafes || cafes.length === 0) {
+            console.log('[QB-Scheduler] No cafes configured')
+            return
+        }
+
+        let successCount = 0
+        let skipCount = 0
+        let failCount = 0
+
+        for (const cafe of cafes) {
+            try {
+                const result = await sendQBReportForCafe(cafe.id, reportDate, 'scheduler')
+                if (result.ok) {
+                    successCount++
+                    console.log(`[QB-Scheduler] ✓ ${cafe.name}: sent successfully`)
+                } else if (result.status === 409) {
+                    skipCount++
+                    console.log(`[QB-Scheduler] ⊘ ${cafe.name}: already sent, skipping`)
+                } else {
+                    failCount++
+                    console.log(`[QB-Scheduler] ✗ ${cafe.name}: ${result.message}`)
+                }
+            } catch (err) {
+                failCount++
+                console.error(`[QB-Scheduler] ✗ ${cafe.name}: error —`, err.message)
+            }
+        }
+
+        // Mark as run for today so we don't run again
+        await pool.execute(
+            'UPDATE qb_schedule SET last_run_date=? ORDER BY id LIMIT 1',
+            [reportDate]
+        )
+
+        console.log(`[QB-Scheduler] Completed: ${successCount} sent, ${skipCount} skipped, ${failCount} failed`)
+    } catch (err) {
+        console.error('[QB-Scheduler] Error:', err.message)
+    }
+}
+
+// Run the scheduler check every 60 seconds
+setInterval(runScheduledQBReports, 60 * 1000)
 
 // ── Serve the Vite production build (only when build/ exists) ───────────────
 const buildDir = path.join(__dirname, 'build')
