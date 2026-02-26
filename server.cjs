@@ -227,6 +227,70 @@ async function initDb() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
 
+        // Google Sheets connection settings
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS gs_settings (
+                id             INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                client_id      VARCHAR(500) NOT NULL DEFAULT '',
+                client_secret  VARCHAR(500) NOT NULL DEFAULT '',
+                redirect_uri   VARCHAR(500) NOT NULL DEFAULT '',
+                is_connected   TINYINT(1)   NOT NULL DEFAULT 0,
+                access_token   TEXT         NULL,
+                refresh_token  TEXT         NULL,
+                token_expires_at DATETIME   NULL,
+                updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // Google Sheets sheet configuration
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS gs_sheet_config (
+                id             INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                spreadsheet_id VARCHAR(500) NOT NULL DEFAULT '',
+                sheet_name     VARCHAR(255) NOT NULL DEFAULT 'Sheet1',
+                updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // Google Sheets automated report schedule
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS gs_schedule (
+                id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                schedule_type VARCHAR(50)  NOT NULL DEFAULT '',
+                schedule_time VARCHAR(10)  NOT NULL DEFAULT '06:00',
+                last_run_date VARCHAR(10)  NOT NULL DEFAULT '',
+                updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // Google Sheets send history (unique per cafe + date to prevent duplicates)
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS gs_send_history (
+                id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+                cafe_id     VARCHAR(36)  NOT NULL,
+                cafe_name   VARCHAR(255) NOT NULL,
+                report_date DATE         NOT NULL,
+                sent_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                status      VARCHAR(20)  NOT NULL DEFAULT 'success',
+                sent_by     VARCHAR(36)  NULL,
+                UNIQUE KEY uq_gs_cafe_date (cafe_id, report_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // Google Sheets scheduler run logs
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS gs_scheduler_logs (
+                id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                report_date   VARCHAR(10)  NOT NULL,
+                run_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                schedule_type VARCHAR(50)  NOT NULL DEFAULT '',
+                success_count INT          NOT NULL DEFAULT 0,
+                skip_count    INT          NOT NULL DEFAULT 0,
+                fail_count    INT          NOT NULL DEFAULT 0,
+                details       TEXT         NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
         // Ensure theme_mode column exists for existing users table
         try {
             await conn.execute("ALTER TABLE users ADD COLUMN theme_mode ENUM('light', 'dark') NOT NULL DEFAULT 'light' AFTER avatar")
@@ -2108,6 +2172,583 @@ setInterval(runScheduledQBReports, 60 * 1000)
 // Also run once on startup (after a short delay for DB to be ready)
 setTimeout(runScheduledQBReports, 5000)
 console.log('[QB-Scheduler] Initialized — checking every 60s (Asia/Manila timezone)')
+
+// ── Google Sheets API ────────────────────────────────────────────────────────
+
+// Google OAuth2 endpoints
+const GS_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
+const GS_TOKEN_URL = 'https://oauth2.googleapis.com/token'
+const GS_REVOKE_URL = 'https://oauth2.googleapis.com/revoke'
+const GS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets'
+const GS_SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
+
+// Helper: ensure single-row config tables have a row
+async function ensureGSRow(table) {
+    const [[row]] = await pool.execute(`SELECT id FROM ${table} LIMIT 1`)
+    if (!row) {
+        await pool.execute(`INSERT INTO ${table} () VALUES ()`)
+    }
+}
+
+// Helper: make an HTTPS POST to exchange/refresh tokens
+function gsHttpsRequest(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        const parsedUrl = new URL(url)
+        const reqOptions = {
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port || 443,
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: options.method || 'GET',
+            headers: options.headers || {},
+        }
+        const req = https.request(reqOptions, (res) => {
+            let body = ''
+            res.on('data', (chunk) => { body += chunk })
+            res.on('end', () => { resolve({ statusCode: res.statusCode, body }) })
+        })
+        req.on('error', reject)
+        if (options.body) req.write(options.body)
+        req.end()
+    })
+}
+
+// Helper: refresh the Google access token using the refresh token
+async function refreshGSToken(settings) {
+    const postData = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: settings.refresh_token,
+        client_id: settings.client_id,
+        client_secret: settings.client_secret,
+    }).toString()
+    const result = await gsHttpsRequest(GS_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: postData,
+    })
+    if (result.statusCode !== 200) {
+        console.error('[GS] Token refresh failed:', result.body)
+        return null
+    }
+    const tokenData = JSON.parse(result.body)
+    const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000)
+    await pool.execute(
+        'UPDATE gs_settings SET access_token=?, token_expires_at=? ORDER BY id LIMIT 1',
+        [tokenData.access_token, expiresAt]
+    )
+    return tokenData.access_token
+}
+
+// Helper: get a valid Google access token (refreshes if expired)
+async function getValidGSToken() {
+    await ensureGSRow('gs_settings')
+    const [[settings]] = await pool.execute('SELECT * FROM gs_settings LIMIT 1')
+    if (!settings || !settings.is_connected || !settings.access_token) return null
+
+    const now = new Date()
+    const expiresAt = settings.token_expires_at ? new Date(settings.token_expires_at) : null
+    if (!expiresAt || now >= new Date(expiresAt.getTime() - 5 * 60 * 1000)) {
+        if (!settings.refresh_token) return null
+        return await refreshGSToken(settings)
+    }
+    return settings.access_token
+}
+
+// GET /api/googlesheets/settings
+app.get('/api/googlesheets/settings', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureGSRow('gs_settings')
+        const [[row]] = await pool.execute('SELECT * FROM gs_settings LIMIT 1')
+        res.json({
+            client_id: row.client_id,
+            client_secret: row.client_secret,
+            redirect_uri: row.redirect_uri,
+            is_connected: !!row.is_connected,
+        })
+    } catch (e) {
+        console.error('[GS] settings get error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/googlesheets/settings
+app.post('/api/googlesheets/settings', requireAuth, requireAdmin, async (req, res) => {
+    const { client_id, client_secret, redirect_uri } = req.body || {}
+    try {
+        await ensureGSRow('gs_settings')
+        await pool.execute(
+            'UPDATE gs_settings SET client_id=?, client_secret=?, redirect_uri=? ORDER BY id LIMIT 1',
+            [client_id || '', client_secret || '', redirect_uri || '']
+        )
+        await logActivity(req.user.id, 'gs_settings_update', 'Google Sheets settings updated', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[GS] settings save error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/googlesheets/auth-url — generate the Google OAuth2 authorization URL
+app.get('/api/googlesheets/auth-url', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureGSRow('gs_settings')
+        const [[settings]] = await pool.execute('SELECT * FROM gs_settings LIMIT 1')
+        if (!settings.redirect_uri) {
+            return res.status(400).json({ message: 'Please save your Redirect URI first.' })
+        }
+        if (!settings.client_id || !settings.client_secret) {
+            return res.status(400).json({ message: 'Please save your Client ID and Client Secret first.' })
+        }
+        const params = new URLSearchParams({
+            client_id: settings.client_id,
+            redirect_uri: settings.redirect_uri,
+            response_type: 'code',
+            scope: GS_SCOPE,
+            access_type: 'offline',
+            prompt: 'consent',
+        })
+        const auth_url = `${GS_AUTH_URL}?${params.toString()}`
+        res.json({ auth_url })
+    } catch (e) {
+        console.error('[GS] auth-url error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/googlesheets/callback — handle the OAuth2 callback from Google
+app.get('/api/googlesheets/callback', async (req, res) => {
+    const { code, error } = req.query
+    if (error) {
+        console.error('[GS] OAuth error:', error)
+        return res.redirect('/googlesheets?gs_error=' + encodeURIComponent(error))
+    }
+    if (!code) {
+        return res.redirect('/googlesheets?gs_error=missing_code')
+    }
+    try {
+        await ensureGSRow('gs_settings')
+        const [[settings]] = await pool.execute('SELECT * FROM gs_settings LIMIT 1')
+        if (!settings.redirect_uri || !settings.client_id || !settings.client_secret) {
+            return res.redirect('/googlesheets?gs_error=missing_credentials')
+        }
+
+        // Exchange authorization code for tokens
+        const postData = new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: String(code),
+            redirect_uri: settings.redirect_uri,
+            client_id: settings.client_id,
+            client_secret: settings.client_secret,
+        }).toString()
+
+        const result = await gsHttpsRequest(GS_TOKEN_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: postData,
+        })
+
+        if (result.statusCode !== 200) {
+            console.error('[GS] Token exchange failed:', result.body)
+            return res.redirect('/googlesheets?gs_error=token_exchange_failed')
+        }
+
+        const tokenData = JSON.parse(result.body)
+        const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000)
+
+        await pool.execute(
+            'UPDATE gs_settings SET access_token=?, refresh_token=?, token_expires_at=?, is_connected=1 ORDER BY id LIMIT 1',
+            [tokenData.access_token, tokenData.refresh_token || null, expiresAt]
+        )
+
+        return res.redirect('/googlesheets?gs_connected=true')
+    } catch (e) {
+        console.error('[GS] callback error:', e.message)
+        return res.redirect('/googlesheets?gs_error=server_error')
+    }
+})
+
+// POST /api/googlesheets/disconnect — revoke tokens and clear connection
+app.post('/api/googlesheets/disconnect', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureGSRow('gs_settings')
+        const [[settings]] = await pool.execute('SELECT * FROM gs_settings LIMIT 1')
+
+        // Revoke the access token at Google
+        if (settings.access_token) {
+            try {
+                await gsHttpsRequest(`${GS_REVOKE_URL}?token=${encodeURIComponent(settings.access_token)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                })
+            } catch (revokeErr) {
+                console.warn('[GS] Token revoke error (continuing):', revokeErr.message)
+            }
+        }
+
+        await pool.execute(
+            'UPDATE gs_settings SET is_connected=0, access_token=NULL, refresh_token=NULL, token_expires_at=NULL ORDER BY id LIMIT 1'
+        )
+        await logActivity(req.user.id, 'gs_disconnect', 'Google Sheets disconnected', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[GS] disconnect error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/googlesheets/sheet-config
+app.get('/api/googlesheets/sheet-config', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureGSRow('gs_sheet_config')
+        const [[row]] = await pool.execute('SELECT * FROM gs_sheet_config LIMIT 1')
+        res.json({
+            spreadsheet_id: row.spreadsheet_id,
+            sheet_name: row.sheet_name,
+        })
+    } catch (e) {
+        console.error('[GS] sheet-config get error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/googlesheets/sheet-config
+app.post('/api/googlesheets/sheet-config', requireAuth, requireAdmin, async (req, res) => {
+    const { spreadsheet_id, sheet_name } = req.body || {}
+    try {
+        await ensureGSRow('gs_sheet_config')
+        await pool.execute(
+            'UPDATE gs_sheet_config SET spreadsheet_id=?, sheet_name=? ORDER BY id LIMIT 1',
+            [spreadsheet_id || '', sheet_name || 'Sheet1']
+        )
+        await logActivity(req.user.id, 'gs_sheet_config_update', 'Google Sheets sheet config updated', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[GS] sheet-config save error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/googlesheets/schedule
+app.get('/api/googlesheets/schedule', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureGSRow('gs_schedule')
+        const [[row]] = await pool.execute('SELECT * FROM gs_schedule LIMIT 1')
+        res.json({
+            schedule_type: row.schedule_type,
+            schedule_time: row.schedule_time,
+            last_run_date: row.last_run_date || '',
+        })
+    } catch (e) {
+        console.error('[GS] schedule get error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/googlesheets/schedule
+app.post('/api/googlesheets/schedule', requireAuth, requireAdmin, async (req, res) => {
+    const { schedule_type, schedule_time } = req.body || {}
+    try {
+        await ensureGSRow('gs_schedule')
+        await pool.execute(
+            'UPDATE gs_schedule SET schedule_type=?, schedule_time=? ORDER BY id LIMIT 1',
+            [schedule_type || '', schedule_time || '06:00']
+        )
+        await logActivity(req.user.id, 'gs_schedule_update', `Google Sheets schedule set to ${schedule_type}`, getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[GS] schedule save error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/googlesheets/history
+app.get('/api/googlesheets/history', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT id, cafe_id, cafe_name, DATE_FORMAT(report_date, "%Y-%m-%d") AS report_date, sent_at, status, sent_by FROM gs_send_history ORDER BY sent_at DESC LIMIT 100'
+        )
+        res.json(rows)
+    } catch (e) {
+        console.error('[GS] history error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/googlesheets/scheduler-logs
+app.get('/api/googlesheets/scheduler-logs', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT id, report_date, run_at, schedule_type, success_count, skip_count, fail_count, details FROM gs_scheduler_logs ORDER BY run_at DESC LIMIT 20'
+        )
+        res.json(rows)
+    } catch (e) {
+        console.error('[GS] scheduler-logs error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// ── Core GS report-sending logic (shared by HTTP endpoint and scheduler) ─────
+// Returns { ok, message, totals? }
+async function sendGSReportForCafe(cafe_id, report_date, sent_by) {
+    // Check for duplicate
+    const [[existing]] = await pool.execute(
+        'SELECT id FROM gs_send_history WHERE cafe_id=? AND report_date=?',
+        [cafe_id, report_date]
+    )
+    if (existing) {
+        return { ok: false, status: 409, message: 'Report for this cafe and date has already been sent' }
+    }
+
+    // Look up cafe details
+    const [[cafe]] = await pool.execute('SELECT name, cafe_id AS icafe_cafe_id, api_key FROM cafes WHERE id=?', [cafe_id])
+    if (!cafe) {
+        return { ok: false, status: 404, message: 'Cafe not found' }
+    }
+    const cafeName = cafe.name
+
+    // Verify Google Sheets is connected
+    await ensureGSRow('gs_settings')
+    const [[gsSettings]] = await pool.execute('SELECT * FROM gs_settings LIMIT 1')
+    if (!gsSettings.is_connected) {
+        return { ok: false, status: 400, message: 'Google Sheets is not connected. Please connect first.' }
+    }
+
+    // Get valid access token
+    const accessToken = await getValidGSToken()
+    if (!accessToken) {
+        return { ok: false, status: 401, message: 'Google Sheets session expired. Please reconnect.' }
+    }
+
+    // Load sheet config
+    await ensureGSRow('gs_sheet_config')
+    const [[sheetConfig]] = await pool.execute('SELECT * FROM gs_sheet_config LIMIT 1')
+    if (!sheetConfig.spreadsheet_id) {
+        return { ok: false, status: 400, message: 'No spreadsheet configured. Please set up Sheet Configuration first.' }
+    }
+
+    // Fetch daily totals from iCafe API (same logic as QuickBooks)
+    const dateParts = report_date.split('-').map(Number)
+    const dateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
+    dateObj.setDate(dateObj.getDate() + 1)
+    const nextDate = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`
+
+    const authHeader = `Bearer ${cafe.api_key}`
+
+    async function fetchIcafeApi(urlPath) {
+        const url = 'https://api.icafecloud.com/api/v2' + urlPath
+        try {
+            const result = await fetchUpstream(url, { authorization: authHeader })
+            if (result.statusCode !== 200) return null
+            const bodyStr = typeof result.body === 'string' ? result.body : result.body.toString('utf8')
+            return JSON.parse(bodyStr)
+        } catch (err) {
+            console.error(`[GS] iCafe API fetch error:`, err.message)
+            return null
+        }
+    }
+
+    const shiftListResp = await fetchIcafeApi(
+        `/cafe/${cafe.icafe_cafe_id}/reports/shiftList?date_start=${report_date}&date_end=${nextDate}&time_start=00:00&time_end=23:59&shift_staff_name=all`
+    )
+    const rawShifts = (shiftListResp && shiftListResp.data) || []
+
+    const seen = new Set()
+    const allShifts = []
+    for (const item of rawShifts) {
+        const startTime = String(item.shift_start_time || '')
+        const [startDate, startTimePart = ''] = startTime.split(' ')
+        const id = item.shift_id || item.id
+        if (seen.has(id)) continue
+        if (startDate === report_date) {
+            seen.add(id); allShifts.push(item)
+        } else if (startDate === nextDate && startTimePart < '06:00:00') {
+            seen.add(id); allShifts.push(item)
+        }
+    }
+
+    let totalTopUps = 0
+    let totalShopSales = 0
+    let totalRefunds = 0
+    let totalExpenses = 0
+
+    for (const shift of allShifts) {
+        const shiftId = shift.shift_id || shift.id
+        if (!shiftId) continue
+        const detail = await fetchIcafeApi(
+            `/cafe/${cafe.icafe_cafe_id}/reports/shiftDetail/${shiftId}`
+        )
+        if (!detail || !detail.data) continue
+        const d = detail.data
+
+        const cash = Number(d.cash) || 0
+        const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
+        const shopSales = shopSalesArr.reduce((sum, item) => sum + (parseFloat(String(item.cash || 0)) || 0), 0)
+        const digitalTopups = (Number(d.qr_topup) || 0) + (Number(d.credit_card) || 0)
+        const topUps = (cash - shopSales) + digitalTopups
+
+        totalTopUps += topUps
+        totalShopSales += shopSales
+        totalRefunds += Number(d.cash_refund) || 0
+        totalExpenses += Number(d.center_expenses) || 0
+    }
+
+    console.log(`[GS] Totals for ${cafeName} on ${report_date}: topUps=${totalTopUps.toFixed(2)}, shopSales=${totalShopSales.toFixed(2)}, refunds=${totalRefunds.toFixed(2)}, expenses=${totalExpenses.toFixed(2)}`)
+
+    // ── Append row to Google Sheet ────────────────────────────────────────────
+    // Row format: Date | Cafe | Top-ups | Shop Sales | Refunds | Center Expenses
+    const range = encodeURIComponent(`${sheetConfig.sheet_name || 'Sheet1'}`)
+    const appendUrl = `${GS_SHEETS_API_BASE}/${sheetConfig.spreadsheet_id}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`
+
+    const rowValues = [
+        [
+            report_date,
+            cafeName,
+            Math.round(totalTopUps * 100) / 100,
+            Math.round(totalShopSales * 100) / 100,
+            Math.round(Math.abs(totalRefunds) * 100) / 100,
+            Math.round(totalExpenses * 100) / 100,
+        ]
+    ]
+
+    const gsResult = await gsHttpsRequest(appendUrl, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify({ values: rowValues }),
+    })
+
+    const historyId = randomUUID()
+
+    if (gsResult.statusCode === 200 || gsResult.statusCode === 201) {
+        await pool.execute(
+            'INSERT INTO gs_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
+            [historyId, cafe_id, cafeName, report_date, 'success', sent_by]
+        )
+        await logActivity(sent_by, 'gs_report_sent', `Google Sheets report sent for ${cafeName} on ${report_date}`)
+        return { ok: true, id: historyId, totals: { top_ups: totalTopUps, shop_sales: totalShopSales, refunds: totalRefunds, center_expenses: totalExpenses } }
+    } else {
+        console.error('[GS] Append failed:', gsResult.statusCode, gsResult.body)
+        await pool.execute(
+            'INSERT INTO gs_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
+            [historyId, cafe_id, cafeName, report_date, 'failed', sent_by]
+        )
+        await logActivity(sent_by, 'gs_report_failed', `Google Sheets report failed for ${cafeName} on ${report_date}: status ${gsResult.statusCode}`)
+
+        let errorMsg = 'Failed to append row to Google Sheets'
+        try {
+            const errBody = JSON.parse(gsResult.body)
+            if (errBody.error && errBody.error.message) {
+                errorMsg = errBody.error.message
+            }
+        } catch {}
+        return { ok: false, status: 502, message: errorMsg }
+    }
+}
+
+// POST /api/googlesheets/send-report
+app.post('/api/googlesheets/send-report', requireAuth, requireAdmin, async (req, res) => {
+    const { cafe_id, report_date } = req.body || {}
+    if (!cafe_id || !report_date) {
+        return res.status(400).json({ message: 'cafe_id and report_date required' })
+    }
+    try {
+        const result = await sendGSReportForCafe(cafe_id, report_date, req.user.id)
+        if (result.ok) {
+            res.json(result)
+        } else {
+            res.status(result.status || 500).json({ message: result.message })
+        }
+    } catch (e) {
+        console.error('[GS] send-report error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// ── Google Sheets Automated Report Scheduler ─────────────────────────────────
+// Uses the same Asia/Manila timezone logic as the QuickBooks scheduler.
+
+async function runScheduledGSReports() {
+    try {
+        await ensureGSRow('gs_schedule')
+        const [[schedule]] = await pool.execute('SELECT * FROM gs_schedule LIMIT 1')
+        if (!schedule || !schedule.schedule_type) return
+
+        const { currentTime, reportDate } = getManilaTime()
+
+        if (schedule.last_run_date === reportDate) return
+
+        let shouldRun = false
+        const schedType = schedule.schedule_type
+        const schedTime = schedule.schedule_time || '06:00'
+
+        if (schedType === 'daily_at_time') {
+            shouldRun = (currentTime >= schedTime)
+        } else if (schedType === 'after_business_day') {
+            shouldRun = (currentTime >= '06:00')
+        } else if (schedType === 'after_last_shift') {
+            shouldRun = (currentTime >= '06:00')
+        }
+
+        if (!shouldRun) return
+
+        console.log(`[GS-Scheduler] Running automated reports for ${reportDate} (schedule: ${schedType}, time: ${schedTime}, Manila time: ${currentTime})`)
+
+        const [cafes] = await pool.execute('SELECT id, name FROM cafes ORDER BY sort_order ASC')
+        if (!cafes || cafes.length === 0) {
+            console.log('[GS-Scheduler] No cafes configured')
+            return
+        }
+
+        let successCount = 0
+        let skipCount = 0
+        let failCount = 0
+        const details = []
+
+        for (const cafe of cafes) {
+            try {
+                const result = await sendGSReportForCafe(cafe.id, reportDate, 'scheduler')
+                if (result.ok) {
+                    successCount++
+                    details.push(`✓ ${cafe.name}: sent`)
+                    console.log(`[GS-Scheduler] ✓ ${cafe.name}: sent successfully`)
+                } else if (result.status === 409) {
+                    skipCount++
+                    details.push(`⊘ ${cafe.name}: already sent`)
+                    console.log(`[GS-Scheduler] ⊘ ${cafe.name}: already sent, skipping`)
+                } else {
+                    failCount++
+                    details.push(`✗ ${cafe.name}: ${result.message}`)
+                    console.log(`[GS-Scheduler] ✗ ${cafe.name}: ${result.message}`)
+                }
+            } catch (err) {
+                failCount++
+                details.push(`✗ ${cafe.name}: ${err.message}`)
+                console.error(`[GS-Scheduler] ✗ ${cafe.name}: error —`, err.message)
+            }
+        }
+
+        await pool.execute(
+            'UPDATE gs_schedule SET last_run_date=? ORDER BY id LIMIT 1',
+            [reportDate]
+        )
+
+        await pool.execute(
+            'INSERT INTO gs_scheduler_logs (report_date, schedule_type, success_count, skip_count, fail_count, details) VALUES (?,?,?,?,?,?)',
+            [reportDate, schedType, successCount, skipCount, failCount, details.join('\n')]
+        )
+
+        console.log(`[GS-Scheduler] Completed: ${successCount} sent, ${skipCount} skipped, ${failCount} failed`)
+    } catch (err) {
+        console.error('[GS-Scheduler] Error:', err.message)
+    }
+}
+
+// Run the Google Sheets scheduler check every 60 seconds
+setInterval(runScheduledGSReports, 60 * 1000)
+setTimeout(runScheduledGSReports, 6000)
+console.log('[GS-Scheduler] Initialized — checking every 60s (Asia/Manila timezone)')
 
 // ── Serve the Vite production build (only when build/ exists) ───────────────
 const buildDir = path.join(__dirname, 'build')

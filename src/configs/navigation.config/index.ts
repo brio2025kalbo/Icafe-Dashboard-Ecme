@@ -1,6 +1,7 @@
 import dashboardsNavigationConfig from './dashboards.navigation.config'
 import conceptsNavigationConfig from './concepts.navigation.config'
 import quickbooksNavigationConfig from './quickbooks.navigation.config'
+import googlesheetsNavigationConfig from './googlesheets.navigation.config'
 import {
     NAV_ITEM_TYPE_TITLE,
     NAV_ITEM_TYPE_ITEM,
@@ -13,6 +14,7 @@ const navigationConfig: NavigationTree[] = [
 	...dashboardsNavigationConfig,
 	...conceptsNavigationConfig,
 	...quickbooksNavigationConfig,
+	...googlesheetsNavigationConfig,
 	/*{
         key: 'groupMenu',
         path: '',

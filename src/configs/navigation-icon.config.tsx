@@ -200,6 +200,7 @@ const navigationIcon: NavigationIcons = {
     utilsDoc: <PiToolboxDuotone />,
     changeLog: <PiCodeDuotone />,
     quickbooks: <PiBookBookmarkDuotone />,
+    googlesheets: <PiTableDuotone />,
 }
 
 export default navigationIcon
