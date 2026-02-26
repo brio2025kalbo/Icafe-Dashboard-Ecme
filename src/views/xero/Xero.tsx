@@ -476,6 +476,7 @@ function SendDailyReportCard() {
     const { cafes } = useCafeStore()
     const [selectedCafe, setSelectedCafe] = useState('')
     const [reportDate, setReportDate] = useState<Date | null>(null)
+    const [forceResend, setForceResend] = useState(false)
     const [sending, setSending] = useState(false)
 
     const cafeOptions: SelectOption[] = cafes.map((c) => ({
@@ -494,7 +495,7 @@ function SendDailyReportCard() {
             const result = await apiSendXeroReport<{
                 ok: boolean
                 totals?: { top_ups: number; shop_sales: number; refunds: number; center_expenses: number }
-            }>({ cafe_id: selectedCafe, report_date: dateStr })
+            }>({ cafe_id: selectedCafe, report_date: dateStr, force: forceResend })
             mutate('/xero/history')
             const totals = result.totals
             toast.push(
@@ -504,6 +505,7 @@ function SendDailyReportCard() {
                         : 'Daily report manual journal created in Xero.'}
                 </Notification>,
             )
+            setForceResend(false)
         } catch (err: unknown) {
             const errorMsg =
                 err && typeof err === 'object' && 'response' in err
@@ -555,6 +557,15 @@ function SendDailyReportCard() {
                         onChange={(date) => setReportDate(date)}
                     />
                 </div>
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                    <input
+                        type="checkbox"
+                        className="w-4 h-4"
+                        checked={forceResend}
+                        onChange={(e) => setForceResend(e.target.checked)}
+                    />
+                    Force re-send (override duplicate check)
+                </label>
                 <Button
                     variant="solid"
                     loading={sending}

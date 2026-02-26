@@ -3159,14 +3159,18 @@ app.post('/api/xero/mappings', requireAuth, requireAdmin, async (req, res) => {
 
 // ── Core Xero report-sending logic (shared by HTTP endpoint and scheduler) ────
 // Returns { ok, message, totals?, xero_journal_id? }
-async function sendXeroReportForCafe(cafe_id, report_date, sent_by) {
+async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = false) {
     // Check for duplicate
     const [[existing]] = await pool.execute(
         'SELECT id FROM xero_send_history WHERE cafe_id=? AND report_date=?',
         [cafe_id, report_date]
     )
     if (existing) {
-        return { ok: false, status: 409, message: 'Report for this cafe and date has already been sent' }
+        if (!force) {
+            return { ok: false, status: 409, message: 'Report for this cafe and date has already been sent' }
+        }
+        // Force re-send: remove the old history entry so the journal can be re-created
+        await pool.execute('DELETE FROM xero_send_history WHERE cafe_id=? AND report_date=?', [cafe_id, report_date])
     }
 
     // Look up cafe details
@@ -3392,6 +3396,7 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by) {
             [historyId, cafe_id, cafeName, report_date, 'success', sent_by]
         )
         await logActivity(sent_by, 'xero_report_sent', `Xero report sent for ${cafeName} on ${report_date}`)
+        console.log(`[Xero] ManualJournal created successfully for ${cafeName} on ${report_date}, journalId=${xeroJournalId}`)
         return { ok: true, xero_journal_id: xeroJournalId, totals: { top_ups: totalTopUps, shop_sales: totalShopSales, refunds: totalRefunds, center_expenses: totalExpenses } }
     } else {
         console.error('[Xero] ManualJournal POST failed:', xeroResult.statusCode, xeroResult.body)
@@ -3415,12 +3420,12 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by) {
 
 // POST /api/xero/send-report
 app.post('/api/xero/send-report', requireAuth, requireAdmin, async (req, res) => {
-    const { cafe_id, report_date } = req.body || {}
+    const { cafe_id, report_date, force } = req.body || {}
     if (!cafe_id || !report_date) {
         return res.status(400).json({ message: 'cafe_id and report_date required' })
     }
     try {
-        const result = await sendXeroReportForCafe(cafe_id, report_date, req.user.id)
+        const result = await sendXeroReportForCafe(cafe_id, report_date, req.user.id, force === true)
         if (result.ok) {
             res.json(result)
         } else {

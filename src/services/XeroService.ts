@@ -67,6 +67,7 @@ export async function apiSaveXeroMappings<T>(data: {
 export async function apiSendXeroReport<T>(data: {
     cafe_id: string
     report_date: string
+    force?: boolean
 }) {
     return ApiService.fetchDataWithAxios<T>({
         url: '/xero/send-report',
