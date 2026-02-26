@@ -201,6 +201,7 @@ const navigationIcon: NavigationIcons = {
     changeLog: <PiCodeDuotone />,
     quickbooks: <PiBookBookmarkDuotone />,
     googlesheets: <PiTableDuotone />,
+    xero: <PiCurrencyCircleDollarDuotone />,
 }
 
 export default navigationIcon
