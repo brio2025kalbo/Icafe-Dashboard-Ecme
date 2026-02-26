@@ -3110,10 +3110,14 @@ app.get('/api/xero/accounts', requireAuth, requireAdmin, async (req, res) => {
 
         const data = JSON.parse(result.body)
         const xeroAccounts = (data.Accounts) || []
-        const accounts = xeroAccounts.map((acct) => ({
-            id: acct.AccountID,
-            name: acct.Code ? `${acct.Type} - ${acct.Name} (${acct.Code})` : `${acct.Type} - ${acct.Name}`,
-        }))
+        // Xero ManualJournal API rejects BANK-type accounts ("not a valid id for this document").
+        // All five mapping fields feed into ManualJournal lines, so exclude BANK accounts entirely.
+        const accounts = xeroAccounts
+            .filter((acct) => acct.Type !== 'BANK')
+            .map((acct) => ({
+                id: acct.AccountID,
+                name: acct.Code ? `${acct.Type} - ${acct.Name} (${acct.Code})` : `${acct.Type} - ${acct.Name}`,
+            }))
 
         res.json(accounts)
     } catch (e) {

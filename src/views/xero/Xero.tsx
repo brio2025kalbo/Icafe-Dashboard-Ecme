@@ -438,10 +438,13 @@ function AccountMappingsCard() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1">
-                                    Bank / Cash Account
+                                    Clearing / Offset Account
                                 </label>
+                                <p className="text-xs text-gray-500 mb-1">
+                                    The balancing debit line for net income. Must be a non-bank account (e.g. Trade Debtors, Clearing). Bank accounts are excluded — they cannot be used in Xero Manual Journals.
+                                </p>
                                 <Select
-                                    placeholder="Select Bank or Cash account"
+                                    placeholder="Select Clearing or Offset account"
                                     options={accountOptions}
                                     value={
                                         accountOptions.find(
