@@ -177,16 +177,27 @@ function ConnectionSettingsCard() {
         setConnecting(false)
     }
 
+    const headerContent = (
+        <div className="flex items-center gap-2">
+            <h5>Connection Settings</h5>
+            {data?.is_connected && (
+                <Tag className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                    Connected
+                </Tag>
+            )}
+        </div>
+    )
+
     if (isLoading) {
         return (
-            <Card header={{ content: <h5>Connection Settings</h5>, bordered: true }}>
+            <Card header={{ content: headerContent, bordered: true }}>
                 <p className="text-gray-500">Loading...</p>
             </Card>
         )
     }
 
     return (
-        <Card header={{ content: <h5>Connection Settings</h5>, bordered: true }}>
+        <Card header={{ content: headerContent, bordered: true }}>
             <div className="flex flex-col gap-4">
                 <p className="text-sm text-gray-500">
                     Create OAuth 2.0 credentials in the{' '}
@@ -230,18 +241,13 @@ function ConnectionSettingsCard() {
                         Save Settings
                     </Button>
                     {data?.is_connected ? (
-                        <>
-                            <Tag className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                                Connected
-                            </Tag>
-                            <Button
-                                variant="default"
-                                loading={connecting}
-                                onClick={handleDisconnect}
-                            >
-                                Disconnect
-                            </Button>
-                        </>
+                        <Button
+                            variant="default"
+                            loading={connecting}
+                            onClick={handleDisconnect}
+                        >
+                            Disconnect
+                        </Button>
                     ) : (
                         <Button
                             variant="solid"
