@@ -3254,6 +3254,10 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
     let totalRefunds = 0
     let totalExpenses = 0
 
+    // Collect itemized expenses and refunds across all shifts
+    const allExpenseItems = []   // { log_money, log_details, staff_name }
+    const allRefundItems = []    // { log_money, log_details, log_member_account }
+
     for (const shift of allShifts) {
         const shiftId = shift.shift_id || shift.id
         if (!shiftId) continue
@@ -3268,13 +3272,104 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
         const shopSales = shopSalesArr.reduce((sum, item) => sum + (parseFloat(String(item.cash || 0)) || 0), 0)
         const digitalTopups = (Number(d.qr_topup) || 0) + (Number(d.credit_card) || 0)
         const topUps = (cash - shopSales) + digitalTopups
+        const refunds = Number(d.cash_refund) || 0
+        const expenses = Number(d.center_expenses) || 0
+        const staffName = d.staff_name || String(shift.shift_staff_name || '')
 
         totalTopUps += topUps
         totalShopSales += shopSales
-        totalRefunds += Number(d.cash_refund) || 0
-        totalExpenses += Number(d.center_expenses) || 0
+        totalRefunds += refunds
+        totalExpenses += expenses
 
-        console.log(`[Xero] Shift ${shiftId}: topUps=${topUps.toFixed(2)}, shopSales=${shopSales.toFixed(2)}, refunds=${(Number(d.cash_refund) || 0).toFixed(2)}, expenses=${(Number(d.center_expenses) || 0).toFixed(2)}`)
+        console.log(`[Xero] Shift ${shiftId}: topUps=${topUps.toFixed(2)}, shopSales=${shopSales.toFixed(2)}, refunds=${refunds.toFixed(2)}, expenses=${expenses.toFixed(2)}`)
+
+        // Fetch itemized expense details from reportData API
+        if (expenses !== 0 && staffName) {
+            const shiftStart = (d.start_time || '').split(' ')[0]
+            const shiftEnd = (d.end_time || '').split(' ')[0]
+            if (shiftStart) {
+                let dateEnd = shiftEnd || shiftStart
+                if (dateEnd === shiftStart) {
+                    const parts = shiftStart.split('-').map(Number)
+                    const nd = new Date(parts[0], parts[1] - 1, parts[2])
+                    nd.setDate(nd.getDate() + 1)
+                    dateEnd = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`
+                }
+                const reportData = await fetchIcafeApi(
+                    `/cafe/${cafe.icafe_cafe_id}/reports/reportData?date_start=${shiftStart}&date_end=${dateEnd}&time_start=06:00&time_end=05:59&log_staff_name=${encodeURIComponent(staffName)}`
+                )
+                const expItems = reportData?.data?.income?.expense?.items
+                if (Array.isArray(expItems) && expItems.length > 0) {
+                    for (const item of expItems) {
+                        allExpenseItems.push({
+                            log_money: String(item.log_money || '0'),
+                            log_details: String(item.log_details || ''),
+                            staff_name: staffName,
+                        })
+                    }
+                    console.log(`[Xero] Shift ${shiftId}: found ${expItems.length} expense item(s)`)
+                }
+            }
+        }
+    }
+
+    // Fetch itemized refund details from billingLogs API (with pagination)
+    if (totalRefunds !== 0) {
+        let blPage = 1
+        let blTotalPages = 1
+
+        do {
+            const blUrl = `/cafe/${cafe.icafe_cafe_id}/billingLogs?date_start=${report_date}&date_end=${nextDate}&time_start=06:00&time_end=05:59&event=TOPUP&page=${blPage}`
+            const blResp = await fetchIcafeApi(blUrl)
+
+            const blData = blResp?.data
+            let entries = []
+            let paging = null
+
+            if (Array.isArray(blData)) {
+                entries = blData
+                paging = blResp?.paging_info || null
+            } else if (blData && typeof blData === 'object') {
+                if (Array.isArray(blData.items)) {
+                    entries = blData.items
+                } else {
+                    const arrVal = Object.values(blData).find(Array.isArray)
+                    entries = arrVal || []
+                }
+                paging = blData.paging_info || null
+            }
+
+            if (blPage === 1) {
+                console.log(`[Xero] billingLogs page ${blPage}: resp keys:`,
+                    blResp ? Object.keys(blResp) : 'null',
+                    '| data type:', Array.isArray(blData) ? 'array' : typeof blData,
+                    '| entries:', entries.length,
+                    '| paging:', paging ? JSON.stringify(paging) : 'none')
+            }
+
+            if (entries.length === 0) break
+
+            for (const entry of entries) {
+                const money = parseFloat(String(entry.log_money ?? entry.money ?? 0)) || 0
+                if (money < 0) {
+                    allRefundItems.push({
+                        log_money: String(entry.log_money ?? entry.money ?? money),
+                        log_details: String(entry.log_details ?? entry.log_detail ?? entry.details ?? ''),
+                        log_member_account: entry.log_member_account ? String(entry.log_member_account) : '',
+                    })
+                }
+            }
+
+            if (!paging) break
+            blTotalPages = Number(paging.pages ?? paging.total_pages ?? 1) || 1
+            blPage++
+        } while (blPage <= blTotalPages)
+
+        if (allRefundItems.length > 0) {
+            console.log(`[Xero] Found ${allRefundItems.length} refund item(s) from billing logs (${blPage} page(s))`)
+        } else {
+            console.log(`[Xero] No refund items found in billing logs despite totalRefunds=${totalRefunds.toFixed(2)}`)
+        }
     }
 
     console.log(`[Xero] Totals for ${cafeName} on ${report_date}: topUps=${totalTopUps.toFixed(2)}, shopSales=${totalShopSales.toFixed(2)}, refunds=${totalRefunds.toFixed(2)}, expenses=${totalExpenses.toFixed(2)}`)
@@ -3316,21 +3411,55 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
             Description: `Shop Sales - ${cafeName} - ${report_date}`,
         })
     }
+    // Refund lines — itemized breakdowns when available, aggregated fallback
     if (totalRefunds !== 0 && mappings.refunds_account) {
-        journalLines.push({
-            LineAmount: Math.round(Math.abs(totalRefunds) * 100) / 100,
-            ...xeroAcctRef(mappings.refunds_account),
-            Description: `Refunds - ${cafeName} - ${report_date}`,
-        })
+        if (allRefundItems.length > 0) {
+            for (const item of allRefundItems) {
+                const amount = Math.round(Math.abs(parseFloat(item.log_money) || 0) * 100) / 100
+                if (amount === 0) continue
+                const desc = item.log_details
+                    ? `Refund: ${item.log_details}${item.log_member_account ? ' (' + item.log_member_account + ')' : ''} - ${cafeName} - ${report_date}`
+                    : `Refund${item.log_member_account ? ' (' + item.log_member_account + ')' : ''} - ${cafeName} - ${report_date}`
+                journalLines.push({
+                    LineAmount: amount,
+                    ...xeroAcctRef(mappings.refunds_account),
+                    Description: desc,
+                })
+            }
+        } else {
+            journalLines.push({
+                LineAmount: Math.round(Math.abs(totalRefunds) * 100) / 100,
+                ...xeroAcctRef(mappings.refunds_account),
+                Description: `Refunds - ${cafeName} - ${report_date}`,
+            })
+        }
     }
+    // Expense lines — itemized breakdowns when available, aggregated fallback
     if (totalExpenses !== 0 && mappings.center_expenses_account) {
-        journalLines.push({
-            // iCafe returns expenses as a negative value; use absolute value so the
-            // expense account is debited (positive LineAmount) in the ManualJournal.
-            LineAmount: Math.round(Math.abs(totalExpenses) * 100) / 100,
-            ...xeroAcctRef(mappings.center_expenses_account),
-            Description: `Center Expenses - ${cafeName} - ${report_date}`,
-        })
+        if (allExpenseItems.length > 0) {
+            for (const item of allExpenseItems) {
+                const amount = Math.round(Math.abs(parseFloat(item.log_money) || 0) * 100) / 100
+                if (amount === 0) continue
+                const desc = item.log_details
+                    ? `Expense: ${item.log_details} (${item.staff_name}) - ${cafeName} - ${report_date}`
+                    : `Expense (${item.staff_name}) - ${cafeName} - ${report_date}`
+                journalLines.push({
+                    // iCafe returns expenses as a negative value; use absolute value so the
+                    // expense account is debited (positive LineAmount) in the ManualJournal.
+                    LineAmount: amount,
+                    ...xeroAcctRef(mappings.center_expenses_account),
+                    Description: desc,
+                })
+            }
+        } else {
+            journalLines.push({
+                // iCafe returns expenses as a negative value; use absolute value so the
+                // expense account is debited (positive LineAmount) in the ManualJournal.
+                LineAmount: Math.round(Math.abs(totalExpenses) * 100) / 100,
+                ...xeroAcctRef(mappings.center_expenses_account),
+                Description: `Center Expenses - ${cafeName} - ${report_date}`,
+            })
+        }
     }
 
     // Offsetting debit to clearing/offset account (net income minus expenses)
