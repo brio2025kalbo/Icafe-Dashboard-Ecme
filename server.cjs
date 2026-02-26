@@ -3325,15 +3325,17 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
     }
     if (totalExpenses !== 0 && mappings.center_expenses_account) {
         journalLines.push({
-            LineAmount: Math.round(totalExpenses * 100) / 100,
+            // iCafe returns expenses as a negative value; use absolute value so the
+            // expense account is debited (positive LineAmount) in the ManualJournal.
+            LineAmount: Math.round(Math.abs(totalExpenses) * 100) / 100,
             ...xeroAcctRef(mappings.center_expenses_account),
             Description: `Center Expenses - ${cafeName} - ${report_date}`,
         })
     }
 
-    // Offsetting debit to bank/cash account (net income - expenses)
+    // Offsetting debit to clearing/offset account (net income minus expenses)
     if (bankCode) {
-        const bankDebit = Math.round((totalIncome - totalExpenses) * 100) / 100
+        const bankDebit = Math.round((totalIncome - Math.abs(totalExpenses)) * 100) / 100
         if (bankDebit !== 0) {
             journalLines.push({
                 LineAmount: bankDebit,
