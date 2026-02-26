@@ -291,6 +291,75 @@ async function initDb() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
 
+        // Xero connection settings
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS xero_settings (
+                id               INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                client_id        VARCHAR(500) NOT NULL DEFAULT '',
+                client_secret    VARCHAR(500) NOT NULL DEFAULT '',
+                xero_redirect_uri VARCHAR(500) NOT NULL DEFAULT '',
+                is_connected     TINYINT(1)   NOT NULL DEFAULT 0,
+                access_token     TEXT         NULL,
+                refresh_token    TEXT         NULL,
+                tenant_id        VARCHAR(100) NULL,
+                tenant_name      VARCHAR(255) NULL,
+                token_expires_at DATETIME     NULL,
+                updated_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // Xero account mappings
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS xero_account_mappings (
+                id                      INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                topups_account          VARCHAR(255) NOT NULL DEFAULT '',
+                shop_sales_account      VARCHAR(255) NOT NULL DEFAULT '',
+                refunds_account         VARCHAR(255) NOT NULL DEFAULT '',
+                center_expenses_account VARCHAR(255) NOT NULL DEFAULT '',
+                bank_account            VARCHAR(255) NOT NULL DEFAULT '',
+                updated_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // Xero automated report schedule
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS xero_schedule (
+                id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                schedule_type VARCHAR(50)  NOT NULL DEFAULT '',
+                schedule_time VARCHAR(10)  NOT NULL DEFAULT '06:00',
+                last_run_date VARCHAR(10)  NOT NULL DEFAULT '',
+                updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // Xero send history (unique per cafe + date to prevent duplicates)
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS xero_send_history (
+                id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+                cafe_id     VARCHAR(36)  NOT NULL,
+                cafe_name   VARCHAR(255) NOT NULL,
+                report_date DATE         NOT NULL,
+                sent_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                status      VARCHAR(20)  NOT NULL DEFAULT 'success',
+                sent_by     VARCHAR(36)  NULL,
+                UNIQUE KEY uq_xero_cafe_date (cafe_id, report_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // Xero scheduler run logs
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS xero_scheduler_logs (
+                id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                report_date   VARCHAR(10)  NOT NULL,
+                run_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                schedule_type VARCHAR(50)  NOT NULL DEFAULT '',
+                success_count INT          NOT NULL DEFAULT 0,
+                skip_count    INT          NOT NULL DEFAULT 0,
+                fail_count    INT          NOT NULL DEFAULT 0,
+                details       TEXT         NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
         // Ensure theme_mode column exists for existing users table
         try {
             await conn.execute("ALTER TABLE users ADD COLUMN theme_mode ENUM('light', 'dark') NOT NULL DEFAULT 'light' AFTER avatar")
@@ -2749,6 +2818,773 @@ async function runScheduledGSReports() {
 setInterval(runScheduledGSReports, 60 * 1000)
 setTimeout(runScheduledGSReports, 6000)
 console.log('[GS-Scheduler] Initialized — checking every 60s (Asia/Manila timezone)')
+
+// ── Xero API ─────────────────────────────────────────────────────────────────
+
+// Xero OAuth2 endpoints
+const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize'
+const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token'
+const XERO_REVOKE_URL = 'https://identity.xero.com/connect/revocation'
+const XERO_CONNECTIONS_URL = 'https://api.xero.com/connections'
+const XERO_API_BASE = 'https://api.xero.com/api.xro/2.0'
+const XERO_SCOPE = 'accounting.transactions accounting.settings offline_access'
+
+// Helper: ensure single-row config tables have a row
+async function ensureXeroRow(table) {
+    const [[row]] = await pool.execute(`SELECT id FROM ${table} LIMIT 1`)
+    if (!row) {
+        await pool.execute(`INSERT INTO ${table} () VALUES ()`)
+    }
+}
+
+// Helper: make an HTTPS request and return { statusCode, body }
+function xeroHttpsRequest(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        const parsedUrl = new URL(url)
+        const reqOptions = {
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port || 443,
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: options.method || 'GET',
+            headers: options.headers || {},
+        }
+        const req = https.request(reqOptions, (res) => {
+            let body = ''
+            res.on('data', (chunk) => { body += chunk })
+            res.on('end', () => { resolve({ statusCode: res.statusCode, body }) })
+        })
+        req.on('error', reject)
+        if (options.body) req.write(options.body)
+        req.end()
+    })
+}
+
+// Helper: refresh the Xero access token using the refresh token
+async function refreshXeroToken(settings) {
+    const basicAuth = Buffer.from(`${settings.client_id}:${settings.client_secret}`).toString('base64')
+    const postData = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: settings.refresh_token,
+    }).toString()
+    const result = await xeroHttpsRequest(XERO_TOKEN_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${basicAuth}`,
+        },
+        body: postData,
+    })
+    if (result.statusCode !== 200) {
+        console.error('[Xero] Token refresh failed:', result.body)
+        return null
+    }
+    const tokenData = JSON.parse(result.body)
+    const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000)
+    await pool.execute(
+        'UPDATE xero_settings SET access_token=?, refresh_token=?, token_expires_at=? ORDER BY id LIMIT 1',
+        [tokenData.access_token, tokenData.refresh_token || settings.refresh_token, expiresAt]
+    )
+    return tokenData.access_token
+}
+
+// Helper: get a valid Xero access token (refreshes if expired)
+async function getValidXeroToken() {
+    await ensureXeroRow('xero_settings')
+    const [[settings]] = await pool.execute('SELECT * FROM xero_settings LIMIT 1')
+    if (!settings || !settings.is_connected || !settings.access_token) return null
+
+    const now = new Date()
+    const expiresAt = settings.token_expires_at ? new Date(settings.token_expires_at) : null
+    if (!expiresAt || now >= new Date(expiresAt.getTime() - 5 * 60 * 1000)) {
+        if (!settings.refresh_token) return null
+        return await refreshXeroToken(settings)
+    }
+    return settings.access_token
+}
+
+// GET /api/xero/settings
+app.get('/api/xero/settings', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureXeroRow('xero_settings')
+        const [[row]] = await pool.execute('SELECT * FROM xero_settings LIMIT 1')
+        res.json({
+            client_id: row.client_id,
+            client_secret: row.client_secret,
+            xero_redirect_uri: row.xero_redirect_uri,
+            is_connected: !!row.is_connected,
+            tenant_id: row.tenant_id || '',
+            tenant_name: row.tenant_name || '',
+        })
+    } catch (e) {
+        console.error('[Xero] settings get error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/xero/settings
+app.post('/api/xero/settings', requireAuth, requireAdmin, async (req, res) => {
+    const { client_id, client_secret, xero_redirect_uri } = req.body || {}
+    try {
+        await ensureXeroRow('xero_settings')
+        await pool.execute(
+            'UPDATE xero_settings SET client_id=?, client_secret=?, xero_redirect_uri=? ORDER BY id LIMIT 1',
+            [client_id || '', client_secret || '', xero_redirect_uri || '']
+        )
+        await logActivity(req.user.id, 'xero_settings_update', 'Xero settings updated', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[Xero] settings save error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/xero/auth-url — generate the Xero OAuth2 authorization URL
+app.get('/api/xero/auth-url', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureXeroRow('xero_settings')
+        const [[settings]] = await pool.execute('SELECT * FROM xero_settings LIMIT 1')
+        if (!settings.xero_redirect_uri) {
+            return res.status(400).json({ message: 'Please save your Redirect URI first.' })
+        }
+        if (!settings.client_id || !settings.client_secret) {
+            return res.status(400).json({ message: 'Please save your Client ID and Client Secret first.' })
+        }
+        const state = randomUUID()
+        const authUrl = `${XERO_AUTH_URL}?response_type=code&client_id=${encodeURIComponent(settings.client_id)}&redirect_uri=${encodeURIComponent(settings.xero_redirect_uri)}&scope=${encodeURIComponent(XERO_SCOPE)}&state=${state}`
+        res.json({ auth_url: authUrl, state })
+    } catch (e) {
+        console.error('[Xero] auth-url error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/xero/callback — handle the OAuth2 callback from Xero
+app.get('/api/xero/callback', async (req, res) => {
+    const { code, state, error } = req.query
+    if (error) {
+        console.error('[Xero] OAuth error:', error)
+        return res.redirect('/xero?xero_error=' + encodeURIComponent(error))
+    }
+    if (!code) {
+        return res.redirect('/xero?xero_error=missing_code')
+    }
+    try {
+        await ensureXeroRow('xero_settings')
+        const [[settings]] = await pool.execute('SELECT * FROM xero_settings LIMIT 1')
+        if (!settings.xero_redirect_uri || !settings.client_id || !settings.client_secret) {
+            return res.redirect('/xero?xero_error=missing_credentials')
+        }
+
+        // Exchange authorization code for tokens
+        const basicAuth = Buffer.from(`${settings.client_id}:${settings.client_secret}`).toString('base64')
+        const postData = new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: String(code),
+            redirect_uri: settings.xero_redirect_uri,
+        }).toString()
+
+        const result = await xeroHttpsRequest(XERO_TOKEN_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authorization': `Basic ${basicAuth}`,
+            },
+            body: postData,
+        })
+
+        if (result.statusCode !== 200) {
+            console.error('[Xero] Token exchange failed:', result.body)
+            return res.redirect('/xero?xero_error=token_exchange_failed')
+        }
+
+        const tokenData = JSON.parse(result.body)
+        const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000)
+
+        // Fetch connected tenant (organisation) from Xero connections API
+        let tenantId = ''
+        let tenantName = ''
+        try {
+            const connResult = await xeroHttpsRequest(XERO_CONNECTIONS_URL, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${tokenData.access_token}`,
+                    'Accept': 'application/json',
+                },
+            })
+            if (connResult.statusCode === 200) {
+                const connections = JSON.parse(connResult.body)
+                if (Array.isArray(connections) && connections.length > 0) {
+                    tenantId = connections[0].tenantId || ''
+                    tenantName = connections[0].tenantName || ''
+                }
+            }
+        } catch (connErr) {
+            console.error('[Xero] Failed to fetch connections:', connErr.message)
+        }
+
+        // Store tokens and mark as connected
+        await pool.execute(
+            'UPDATE xero_settings SET access_token=?, refresh_token=?, token_expires_at=?, tenant_id=?, tenant_name=?, is_connected=1 ORDER BY id LIMIT 1',
+            [tokenData.access_token, tokenData.refresh_token, expiresAt, tenantId, tenantName]
+        )
+
+        await logActivity(null, 'xero_connect', `Connected to Xero (tenantId=${tenantId})`, '')
+        console.log('[Xero] Successfully connected, tenantId:', tenantId, 'org:', tenantName)
+
+        return res.redirect('/xero?xero_connected=true')
+    } catch (e) {
+        console.error('[Xero] callback error:', e.message)
+        return res.redirect('/xero?xero_error=server_error')
+    }
+})
+
+// POST /api/xero/disconnect — revoke tokens and clear connection
+app.post('/api/xero/disconnect', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureXeroRow('xero_settings')
+        const [[settings]] = await pool.execute('SELECT * FROM xero_settings LIMIT 1')
+
+        // Revoke the token at Xero if we have one
+        if (settings.refresh_token && settings.client_id && settings.client_secret) {
+            try {
+                const basicAuth = Buffer.from(`${settings.client_id}:${settings.client_secret}`).toString('base64')
+                const postData = new URLSearchParams({ token: settings.refresh_token }).toString()
+                await xeroHttpsRequest(XERO_REVOKE_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Authorization': `Basic ${basicAuth}`,
+                    },
+                    body: postData,
+                })
+                console.log('[Xero] Token revoked')
+            } catch (revokeErr) {
+                console.error('[Xero] Token revoke error (non-critical):', revokeErr.message)
+            }
+        }
+
+        // Clear tokens and mark as disconnected
+        await pool.execute(
+            'UPDATE xero_settings SET is_connected=0, access_token=NULL, refresh_token=NULL, tenant_id=NULL, tenant_name=NULL, token_expires_at=NULL ORDER BY id LIMIT 1'
+        )
+        await logActivity(req.user.id, 'xero_disconnect', 'Disconnected from Xero', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[Xero] disconnect error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/xero/accounts — fetch Chart of Accounts from Xero API
+app.get('/api/xero/accounts', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureXeroRow('xero_settings')
+        const [[settings]] = await pool.execute('SELECT * FROM xero_settings LIMIT 1')
+
+        if (!settings.is_connected || !settings.tenant_id) {
+            return res.json([])
+        }
+
+        const accessToken = await getValidXeroToken()
+        if (!accessToken) {
+            await pool.execute(
+                'UPDATE xero_settings SET is_connected=0, access_token=NULL, refresh_token=NULL, tenant_id=NULL, tenant_name=NULL, token_expires_at=NULL ORDER BY id LIMIT 1'
+            )
+            return res.status(401).json({ message: 'Xero session expired. Please reconnect.' })
+        }
+
+        const url = `${XERO_API_BASE}/Accounts?where=Status%3D%3D%22ACTIVE%22&order=Name`
+        const result = await xeroHttpsRequest(url, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Xero-Tenant-Id': settings.tenant_id,
+                'Accept': 'application/json',
+            },
+        })
+
+        if (result.statusCode !== 200) {
+            console.error('[Xero] Account query failed:', result.statusCode, result.body)
+            return res.status(502).json({ message: 'Failed to fetch accounts from Xero' })
+        }
+
+        const data = JSON.parse(result.body)
+        const xeroAccounts = (data.Accounts) || []
+        // Xero ManualJournal API rejects BANK-type accounts ("not a valid id for this document").
+        // All five mapping fields feed into ManualJournal lines, so exclude BANK accounts entirely.
+        const accounts = xeroAccounts
+            .filter((acct) => acct.Type !== 'BANK')
+            .map((acct) => ({
+                id: acct.AccountID,
+                name: acct.Code ? `${acct.Type} - ${acct.Name} (${acct.Code})` : `${acct.Type} - ${acct.Name}`,
+            }))
+
+        res.json(accounts)
+    } catch (e) {
+        console.error('[Xero] accounts error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/xero/mappings
+app.get('/api/xero/mappings', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureXeroRow('xero_account_mappings')
+        const [[row]] = await pool.execute('SELECT * FROM xero_account_mappings LIMIT 1')
+        res.json({
+            topups_account: row.topups_account,
+            shop_sales_account: row.shop_sales_account,
+            refunds_account: row.refunds_account,
+            center_expenses_account: row.center_expenses_account,
+            bank_account: row.bank_account,
+        })
+    } catch (e) {
+        console.error('[Xero] mappings get error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/xero/mappings
+app.post('/api/xero/mappings', requireAuth, requireAdmin, async (req, res) => {
+    const { topups_account, shop_sales_account, refunds_account, center_expenses_account, bank_account } = req.body || {}
+    try {
+        await ensureXeroRow('xero_account_mappings')
+        await pool.execute(
+            'UPDATE xero_account_mappings SET topups_account=?, shop_sales_account=?, refunds_account=?, center_expenses_account=?, bank_account=? ORDER BY id LIMIT 1',
+            [topups_account || '', shop_sales_account || '', refunds_account || '', center_expenses_account || '', bank_account || '']
+        )
+        await logActivity(req.user.id, 'xero_mappings_update', 'Xero account mappings updated', getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[Xero] mappings save error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// ── Core Xero report-sending logic (shared by HTTP endpoint and scheduler) ────
+// Returns { ok, message, totals?, xero_journal_id? }
+async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = false) {
+    // Check for duplicate
+    const [[existing]] = await pool.execute(
+        'SELECT id FROM xero_send_history WHERE cafe_id=? AND report_date=?',
+        [cafe_id, report_date]
+    )
+    if (existing) {
+        if (!force) {
+            return { ok: false, status: 409, message: 'Report for this cafe and date has already been sent' }
+        }
+        // Force re-send: remove the old history entry so the journal can be re-created
+        await pool.execute('DELETE FROM xero_send_history WHERE cafe_id=? AND report_date=?', [cafe_id, report_date])
+    }
+
+    // Look up cafe details
+    const [[cafe]] = await pool.execute('SELECT name, cafe_id AS icafe_cafe_id, api_key FROM cafes WHERE id=?', [cafe_id])
+    if (!cafe) {
+        return { ok: false, status: 404, message: 'Cafe not found' }
+    }
+    const cafeName = cafe.name
+
+    // Verify Xero is connected
+    await ensureXeroRow('xero_settings')
+    const [[xeroSettings]] = await pool.execute('SELECT * FROM xero_settings LIMIT 1')
+    if (!xeroSettings.is_connected || !xeroSettings.tenant_id) {
+        return { ok: false, status: 400, message: 'Xero is not connected. Please connect first.' }
+    }
+
+    // Get valid Xero access token
+    const accessToken = await getValidXeroToken()
+    if (!accessToken) {
+        return { ok: false, status: 401, message: 'Xero session expired. Please reconnect.' }
+    }
+
+    // Load account mappings
+    await ensureXeroRow('xero_account_mappings')
+    const [[mappings]] = await pool.execute('SELECT * FROM xero_account_mappings LIMIT 1')
+    if (!mappings.topups_account && !mappings.shop_sales_account && !mappings.refunds_account && !mappings.center_expenses_account) {
+        return { ok: false, status: 400, message: 'No account mappings configured. Please set up account mappings first.' }
+    }
+
+    // ── Fetch daily totals from iCafe API ─────────────────────────────────────
+    const dateParts = report_date.split('-').map(Number)
+    const dateObj = new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
+    dateObj.setDate(dateObj.getDate() + 1)
+    const nextDate = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`
+
+    const authHeader = `Bearer ${cafe.api_key}`
+
+    async function fetchIcafeApi(urlPath) {
+        const url = 'https://api.icafecloud.com/api/v2' + urlPath
+        try {
+            const result = await fetchUpstream(url, { authorization: authHeader })
+            if (result.statusCode !== 200) {
+                console.error(`[Xero] iCafe API error: ${result.statusCode}`, typeof result.body === 'string' ? result.body.substring(0, 200) : '')
+                return null
+            }
+            const bodyStr = typeof result.body === 'string' ? result.body : result.body.toString('utf8')
+            return JSON.parse(bodyStr)
+        } catch (err) {
+            console.error(`[Xero] iCafe API fetch error:`, err.message)
+            return null
+        }
+    }
+
+    const shiftListResp = await fetchIcafeApi(
+        `/cafe/${cafe.icafe_cafe_id}/reports/shiftList?date_start=${report_date}&date_end=${nextDate}&time_start=00:00&time_end=23:59&shift_staff_name=all`
+    )
+    const rawShifts = (shiftListResp && shiftListResp.data) || []
+
+    const seen = new Set()
+    const allShifts = []
+    for (const item of rawShifts) {
+        const startTime = String(item.shift_start_time || '')
+        const [startDate, startTimePart = ''] = startTime.split(' ')
+        const id = item.shift_id || item.id
+        if (seen.has(id)) continue
+        if (startDate === report_date) {
+            seen.add(id); allShifts.push(item)
+        } else if (startDate === nextDate && startTimePart < '06:00:00') {
+            seen.add(id); allShifts.push(item)
+        }
+    }
+
+    console.log(`[Xero] Found ${allShifts.length} shifts for ${cafeName} on ${report_date}`)
+
+    let totalTopUps = 0
+    let totalShopSales = 0
+    let totalRefunds = 0
+    let totalExpenses = 0
+
+    for (const shift of allShifts) {
+        const shiftId = shift.shift_id || shift.id
+        if (!shiftId) continue
+        const detail = await fetchIcafeApi(
+            `/cafe/${cafe.icafe_cafe_id}/reports/shiftDetail/${shiftId}`
+        )
+        if (!detail || !detail.data) continue
+        const d = detail.data
+
+        const cash = Number(d.cash) || 0
+        const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
+        const shopSales = shopSalesArr.reduce((sum, item) => sum + (parseFloat(String(item.cash || 0)) || 0), 0)
+        const digitalTopups = (Number(d.qr_topup) || 0) + (Number(d.credit_card) || 0)
+        const topUps = (cash - shopSales) + digitalTopups
+
+        totalTopUps += topUps
+        totalShopSales += shopSales
+        totalRefunds += Number(d.cash_refund) || 0
+        totalExpenses += Number(d.center_expenses) || 0
+
+        console.log(`[Xero] Shift ${shiftId}: topUps=${topUps.toFixed(2)}, shopSales=${shopSales.toFixed(2)}, refunds=${(Number(d.cash_refund) || 0).toFixed(2)}, expenses=${(Number(d.center_expenses) || 0).toFixed(2)}`)
+    }
+
+    console.log(`[Xero] Totals for ${cafeName} on ${report_date}: topUps=${totalTopUps.toFixed(2)}, shopSales=${totalShopSales.toFixed(2)}, refunds=${totalRefunds.toFixed(2)}, expenses=${totalExpenses.toFixed(2)}`)
+
+    // ── Build Xero Manual Journal ─────────────────────────────────────────────
+    // Xero ManualJournal: positive LineAmount = Debit, negative = Credit
+    // Revenue accounts (top-ups, shop sales) are credited (negative)
+    // Offset/bank account is debited (positive) for total income
+    // Refunds debit the revenue account (reduce income)
+    // Expenses debit the expense account
+    const description = `${cafeName} Daily Report - ${report_date}`
+    const journalLines = []
+
+    const totalIncome = (totalTopUps + totalShopSales) - Math.abs(totalRefunds)
+    const bankCode = mappings.bank_account
+
+    // Helper: build the correct account reference for a Xero journal line.
+    // Stored values are AccountID (UUID) from the accounts endpoint.
+    // If the value somehow contains a short code (legacy), fall back to AccountCode.
+    function xeroAcctRef(value) {
+        if (!value) return {}
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+            ? { AccountID: value }
+            : { AccountCode: value }
+    }
+
+    // Income: credit revenue accounts, debit bank
+    if (totalTopUps !== 0 && mappings.topups_account) {
+        journalLines.push({
+            LineAmount: -(Math.round(totalTopUps * 100) / 100),
+            ...xeroAcctRef(mappings.topups_account),
+            Description: `Top-ups - ${cafeName} - ${report_date}`,
+        })
+    }
+    if (totalShopSales !== 0 && mappings.shop_sales_account) {
+        journalLines.push({
+            LineAmount: -(Math.round(totalShopSales * 100) / 100),
+            ...xeroAcctRef(mappings.shop_sales_account),
+            Description: `Shop Sales - ${cafeName} - ${report_date}`,
+        })
+    }
+    if (totalRefunds !== 0 && mappings.refunds_account) {
+        journalLines.push({
+            LineAmount: Math.round(Math.abs(totalRefunds) * 100) / 100,
+            ...xeroAcctRef(mappings.refunds_account),
+            Description: `Refunds - ${cafeName} - ${report_date}`,
+        })
+    }
+    if (totalExpenses !== 0 && mappings.center_expenses_account) {
+        journalLines.push({
+            // iCafe returns expenses as a negative value; use absolute value so the
+            // expense account is debited (positive LineAmount) in the ManualJournal.
+            LineAmount: Math.round(Math.abs(totalExpenses) * 100) / 100,
+            ...xeroAcctRef(mappings.center_expenses_account),
+            Description: `Center Expenses - ${cafeName} - ${report_date}`,
+        })
+    }
+
+    // Offsetting debit to clearing/offset account (net income minus expenses)
+    if (bankCode) {
+        const bankDebit = Math.round((totalIncome - Math.abs(totalExpenses)) * 100) / 100
+        if (bankDebit !== 0) {
+            journalLines.push({
+                LineAmount: bankDebit,
+                ...xeroAcctRef(bankCode),
+                Description: `Net - ${cafeName} - ${report_date}`,
+            })
+        }
+    }
+
+    if (journalLines.length === 0) {
+        return { ok: false, status: 400, message: `No reportable amounts found for ${cafeName} on ${report_date}. All totals are zero or no account mappings are configured.` }
+    }
+
+    // ── POST ManualJournal to Xero ────────────────────────────────────────────
+    const manualJournal = {
+        Narration: description,
+        JournalLines: journalLines,
+        Date: report_date,
+        Status: 'POSTED',
+        LineAmountTypes: 'NOTAX',
+    }
+
+    const xeroResult = await xeroHttpsRequest(`${XERO_API_BASE}/ManualJournals`, {
+        method: 'PUT',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Xero-Tenant-Id': xeroSettings.tenant_id,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify({ ManualJournals: [manualJournal] }),
+    })
+
+    const historyId = randomUUID()
+
+    if (xeroResult.statusCode === 200 || xeroResult.statusCode === 201) {
+        let xeroJournalId = ''
+        let hasErrors = false
+        let validationMsg = ''
+        try {
+            const xeroBody = JSON.parse(xeroResult.body)
+            const journal = xeroBody.ManualJournals && xeroBody.ManualJournals[0]
+            if (journal) {
+                xeroJournalId = journal.ManualJournalID || ''
+                if (journal.HasErrors || (journal.ValidationErrors && journal.ValidationErrors.length > 0)) {
+                    hasErrors = true
+                    validationMsg = (journal.ValidationErrors && journal.ValidationErrors[0] && journal.ValidationErrors[0].Message) || 'Xero validation error'
+                }
+            }
+        } catch {}
+
+        if (hasErrors) {
+            console.error('[Xero] ManualJournal validation error:', validationMsg)
+            await pool.execute(
+                'INSERT INTO xero_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
+                [historyId, cafe_id, cafeName, report_date, 'failed', sent_by]
+            )
+            await logActivity(sent_by, 'xero_report_failed', `Xero report failed for ${cafeName} on ${report_date}: ${validationMsg}`)
+            return { ok: false, status: 422, message: validationMsg }
+        }
+
+        await pool.execute(
+            'INSERT INTO xero_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
+            [historyId, cafe_id, cafeName, report_date, 'success', sent_by]
+        )
+        await logActivity(sent_by, 'xero_report_sent', `Xero report sent for ${cafeName} on ${report_date}`)
+        console.log(`[Xero] ManualJournal created successfully for ${cafeName} on ${report_date}, journalId=${xeroJournalId}`)
+        return { ok: true, xero_journal_id: xeroJournalId, totals: { top_ups: totalTopUps, shop_sales: totalShopSales, refunds: totalRefunds, center_expenses: totalExpenses } }
+    } else {
+        console.error('[Xero] ManualJournal POST failed:', xeroResult.statusCode, xeroResult.body)
+        await pool.execute(
+            'INSERT INTO xero_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
+            [historyId, cafe_id, cafeName, report_date, 'failed', sent_by]
+        )
+        await logActivity(sent_by, 'xero_report_failed', `Xero report failed for ${cafeName} on ${report_date}: status ${xeroResult.statusCode}`)
+
+        let errorMsg = 'Failed to create manual journal in Xero'
+        try {
+            const errBody = JSON.parse(xeroResult.body)
+            if (errBody.Message) errorMsg = errBody.Message
+            else if (errBody.Elements && errBody.Elements[0] && errBody.Elements[0].ValidationErrors && errBody.Elements[0].ValidationErrors[0]) {
+                errorMsg = errBody.Elements[0].ValidationErrors[0].Message
+            }
+        } catch {}
+        return { ok: false, status: 502, message: errorMsg }
+    }
+}
+
+// POST /api/xero/send-report
+app.post('/api/xero/send-report', requireAuth, requireAdmin, async (req, res) => {
+    const { cafe_id, report_date, force } = req.body || {}
+    if (!cafe_id || !report_date) {
+        return res.status(400).json({ message: 'cafe_id and report_date required' })
+    }
+    try {
+        const result = await sendXeroReportForCafe(cafe_id, report_date, req.user.id, force === true)
+        if (result.ok) {
+            res.json(result)
+        } else {
+            res.status(result.status || 500).json({ message: result.message })
+        }
+    } catch (e) {
+        console.error('[Xero] send-report error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/xero/schedule
+app.get('/api/xero/schedule', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await ensureXeroRow('xero_schedule')
+        const [[row]] = await pool.execute('SELECT * FROM xero_schedule LIMIT 1')
+        res.json({
+            schedule_type: row.schedule_type,
+            schedule_time: row.schedule_time,
+            last_run_date: row.last_run_date || '',
+        })
+    } catch (e) {
+        console.error('[Xero] schedule get error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// POST /api/xero/schedule
+app.post('/api/xero/schedule', requireAuth, requireAdmin, async (req, res) => {
+    const { schedule_type, schedule_time } = req.body || {}
+    try {
+        await ensureXeroRow('xero_schedule')
+        await pool.execute(
+            'UPDATE xero_schedule SET schedule_type=?, schedule_time=? ORDER BY id LIMIT 1',
+            [schedule_type || '', schedule_time || '06:00']
+        )
+        await logActivity(req.user.id, 'xero_schedule_update', `Xero schedule set to ${schedule_type}`, getIp(req))
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[Xero] schedule save error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/xero/history
+app.get('/api/xero/history', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT id, cafe_id, cafe_name, DATE_FORMAT(report_date, "%Y-%m-%d") AS report_date, sent_at, status, sent_by FROM xero_send_history ORDER BY sent_at DESC LIMIT 100'
+        )
+        res.json(rows)
+    } catch (e) {
+        console.error('[Xero] history error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// GET /api/xero/scheduler-logs
+app.get('/api/xero/scheduler-logs', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT id, report_date, run_at, schedule_type, success_count, skip_count, fail_count, details FROM xero_scheduler_logs ORDER BY run_at DESC LIMIT 20'
+        )
+        res.json(rows)
+    } catch (e) {
+        console.error('[Xero] scheduler-logs error:', e.message)
+        res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// ── Xero Automated Report Scheduler ──────────────────────────────────────────
+// Uses the same Asia/Manila timezone logic as the QuickBooks/Google Sheets schedulers.
+
+async function runScheduledXeroReports() {
+    try {
+        await ensureXeroRow('xero_schedule')
+        const [[schedule]] = await pool.execute('SELECT * FROM xero_schedule LIMIT 1')
+        if (!schedule || !schedule.schedule_type) return
+
+        const { currentTime, reportDate } = getManilaTime()
+
+        if (schedule.last_run_date === reportDate) return
+
+        let shouldRun = false
+        const schedType = schedule.schedule_type
+        const schedTime = schedule.schedule_time || '06:00'
+
+        if (schedType === 'daily_at_time') {
+            shouldRun = (currentTime >= schedTime)
+        } else if (schedType === 'after_business_day') {
+            shouldRun = (currentTime >= '06:00')
+        } else if (schedType === 'after_last_shift') {
+            shouldRun = (currentTime >= '06:00')
+        }
+
+        if (!shouldRun) return
+
+        console.log(`[Xero-Scheduler] Running automated reports for ${reportDate} (schedule: ${schedType}, time: ${schedTime}, Manila time: ${currentTime})`)
+
+        const [cafes] = await pool.execute('SELECT id, name FROM cafes ORDER BY sort_order ASC')
+        if (!cafes || cafes.length === 0) {
+            console.log('[Xero-Scheduler] No cafes configured')
+            return
+        }
+
+        let successCount = 0
+        let skipCount = 0
+        let failCount = 0
+        const details = []
+
+        for (const cafe of cafes) {
+            try {
+                const result = await sendXeroReportForCafe(cafe.id, reportDate, 'scheduler')
+                if (result.ok) {
+                    successCount++
+                    details.push(`✓ ${cafe.name}: sent`)
+                    console.log(`[Xero-Scheduler] ✓ ${cafe.name}: sent successfully`)
+                } else if (result.status === 409) {
+                    skipCount++
+                    details.push(`⊘ ${cafe.name}: already sent`)
+                    console.log(`[Xero-Scheduler] ⊘ ${cafe.name}: already sent, skipping`)
+                } else {
+                    failCount++
+                    details.push(`✗ ${cafe.name}: ${result.message}`)
+                    console.log(`[Xero-Scheduler] ✗ ${cafe.name}: ${result.message}`)
+                }
+            } catch (err) {
+                failCount++
+                details.push(`✗ ${cafe.name}: ${err.message}`)
+                console.error(`[Xero-Scheduler] ✗ ${cafe.name}: error —`, err.message)
+            }
+        }
+
+        await pool.execute(
+            'UPDATE xero_schedule SET last_run_date=? ORDER BY id LIMIT 1',
+            [reportDate]
+        )
+
+        await pool.execute(
+            'INSERT INTO xero_scheduler_logs (report_date, schedule_type, success_count, skip_count, fail_count, details) VALUES (?,?,?,?,?,?)',
+            [reportDate, schedType, successCount, skipCount, failCount, details.join('\n')]
+        )
+
+        console.log(`[Xero-Scheduler] Completed: ${successCount} sent, ${skipCount} skipped, ${failCount} failed`)
+    } catch (err) {
+        console.error('[Xero-Scheduler] Error:', err.message)
+    }
+}
+
+// Run the Xero scheduler check every 60 seconds
+setInterval(runScheduledXeroReports, 60 * 1000)
+setTimeout(runScheduledXeroReports, 7000)
+console.log('[Xero-Scheduler] Initialized — checking every 60s (Asia/Manila timezone)')
 
 // ── Serve the Vite production build (only when build/ exists) ───────────────
 const buildDir = path.join(__dirname, 'build')
