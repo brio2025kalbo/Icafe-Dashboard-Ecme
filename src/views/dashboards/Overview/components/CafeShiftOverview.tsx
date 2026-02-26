@@ -254,7 +254,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
             )}
 
             {/* Period tabs + Date navigator (same row) */}
-            <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
 
             <Tabs value={period} onChange={(val) => setPeriod(val as PeriodType)}>
                 <Tabs.TabList>
@@ -267,7 +267,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
             </Tabs>
 
             {period === 'daily' && (
-                <div className="flex items-center gap-2 ml-auto">
+                <div className="flex items-center gap-2">
                     <button
                         onClick={() => setSelectedDate(addDaysToStr(selectedDate, -1))}
                         className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
@@ -308,7 +308,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 </div>
             )}
 
-            </div>            
+            </div>
 
             {error && (
                 <p className="text-xs text-red-500 mt-1">{error}</p>
@@ -321,7 +321,7 @@ const CafeShiftOverview = ({ cafe, showTitle = true, refreshSignal = 0 }: Props)
                 </div>
             )}
 
-            <div className="grid grid-cols-3 xl:grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
                 <ShiftStatCard
                     label="Total Profit"
                     value={stats.total_profit}

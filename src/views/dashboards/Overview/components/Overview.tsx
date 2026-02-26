@@ -259,11 +259,11 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
 
     return (
         <Card>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <h4>Overview</h4>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <Select
-                        className="min-w-[160px]"
+                        className="min-w-[140px] flex-1 sm:flex-none"
                         size="sm"
                         placeholder="Filter cafe"
                         value={selectedFilterOption}
@@ -275,21 +275,6 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                             }
                         }}
                     />
-                    {/* <Select
-                        className="w-[120px]"
-                        size="sm"
-                        placeholder="Select period"
-                        value={options.filter(
-                            (option) => option.value === selectedPeriod,
-                        )}
-                        options={options}
-                        isSearchable={false}
-                        onChange={(option) => {
-                            if (option?.value) {
-                                setSelectedPeriod(option?.value)
-                            }
-                        }}
-                    /> */}
                     <Select
                         className="w-[120px]"
                         size="sm"
@@ -307,7 +292,7 @@ const Overview = ({ data, refreshSignal = 0 }: StatisticGroupsProps) => {
                     />
 
                     {selectedPeriod === 'thisDay' && (
-                        <div className="flex items-center gap-2 ml-1">
+                        <div className="flex items-center gap-2 flex-wrap">
                             <button
                                 onClick={() => setSelectedDate(addDaysToStr(selectedDate, -1))}
                                 className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"

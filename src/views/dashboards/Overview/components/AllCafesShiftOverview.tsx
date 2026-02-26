@@ -223,7 +223,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                 </div>
             )}
 
-            <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                 <div>
                     <h5 className="font-bold text-gray-800 dark:text-white">All Cafes — Combined</h5>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -246,22 +246,9 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                         )}
                     </div>
                 </div>
-                {/* <Select
-                    className="min-w-[160px]"
-                    size="sm"
-                    placeholder="Filter cafe"
-                    value={selectedFilterOption}
-                    options={filterOptions}
-                    isSearchable={false}
-                    onChange={(option) => {
-                        if (option?.value) {
-                            setFilterCafeId(option.value)
-                        }
-                    }}
-                /> */}
-                <div className="flex items-center gap-3 ml-auto flex-wrap">
+                <div className="flex flex-col gap-2 sm:items-end">
                     <Select
-                        className="min-w-[160px]"
+                        className="w-full sm:min-w-[160px] sm:w-auto"
                         size="sm"
                         placeholder="Filter cafe"
                         value={selectedFilterOption}
@@ -274,7 +261,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                         }}
                     />
                 {period === 'daily' && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <button
                             onClick={() => setSelectedDate(addDaysToStr(selectedDate, -1))}
                             className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"

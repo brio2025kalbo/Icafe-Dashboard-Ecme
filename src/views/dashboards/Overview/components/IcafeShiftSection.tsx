@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { TbRefresh } from 'react-icons/tb'
-import { useCafeStore } from '@/store/cafeStore'
+import { useCafeStore, ALL_CAFES_VALUE } from '@/store/cafeStore'
 import AllCafesShiftOverview from './AllCafesShiftOverview'
 import CafeShiftOverview from './CafeShiftOverview'
 
@@ -8,6 +8,7 @@ const AUTO_REFRESH_SECONDS = 30
 
 const IcafeShiftSection = ({ onRefresh }: { onRefresh?: () => void }) => {
     const cafes = useCafeStore((s) => s.cafes)
+    const filterCafeId = useCafeStore((s) => s.filterCafeId)
     const [refreshKey, setRefreshKey] = useState(0)
     const [countdown, setCountdown] = useState(AUTO_REFRESH_SECONDS)
     const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true)
@@ -126,7 +127,9 @@ const IcafeShiftSection = ({ onRefresh }: { onRefresh?: () => void }) => {
                         Individual Cafe Overview
                     </h6>
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                        {cafes.map((cafe) => (
+                        {cafes
+                            .filter((cafe) => filterCafeId === ALL_CAFES_VALUE || cafe.id === filterCafeId)
+                            .map((cafe) => (
                             <div
                                 key={cafe.id}
                                 className="bg-gray-50 dark:bg-gray-900 rounded-2xl p-5 border border-gray-100 dark:border-gray-700"
