@@ -3111,8 +3111,8 @@ app.get('/api/xero/accounts', requireAuth, requireAdmin, async (req, res) => {
         const data = JSON.parse(result.body)
         const xeroAccounts = (data.Accounts) || []
         const accounts = xeroAccounts.map((acct) => ({
-            id: acct.Code || acct.AccountID,
-            name: `${acct.Type} - ${acct.Name}`,
+            id: acct.AccountID,
+            name: acct.Code ? `${acct.Type} - ${acct.Name} (${acct.Code})` : `${acct.Type} - ${acct.Name}`,
         }))
 
         res.json(accounts)
@@ -3283,32 +3283,42 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by) {
     const totalIncome = (totalTopUps + totalShopSales) - Math.abs(totalRefunds)
     const bankCode = mappings.bank_account
 
+    // Helper: build the correct account reference for a Xero journal line.
+    // Stored values are AccountID (UUID) from the accounts endpoint.
+    // If the value somehow contains a short code (legacy), fall back to AccountCode.
+    function xeroAcctRef(value) {
+        if (!value) return {}
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+            ? { AccountID: value }
+            : { AccountCode: value }
+    }
+
     // Income: credit revenue accounts, debit bank
     if (totalTopUps !== 0 && mappings.topups_account) {
         journalLines.push({
             LineAmount: -(Math.round(totalTopUps * 100) / 100),
-            AccountCode: mappings.topups_account,
+            ...xeroAcctRef(mappings.topups_account),
             Description: `Top-ups - ${cafeName} - ${report_date}`,
         })
     }
     if (totalShopSales !== 0 && mappings.shop_sales_account) {
         journalLines.push({
             LineAmount: -(Math.round(totalShopSales * 100) / 100),
-            AccountCode: mappings.shop_sales_account,
+            ...xeroAcctRef(mappings.shop_sales_account),
             Description: `Shop Sales - ${cafeName} - ${report_date}`,
         })
     }
     if (totalRefunds !== 0 && mappings.refunds_account) {
         journalLines.push({
             LineAmount: Math.round(Math.abs(totalRefunds) * 100) / 100,
-            AccountCode: mappings.refunds_account,
+            ...xeroAcctRef(mappings.refunds_account),
             Description: `Refunds - ${cafeName} - ${report_date}`,
         })
     }
     if (totalExpenses !== 0 && mappings.center_expenses_account) {
         journalLines.push({
             LineAmount: Math.round(totalExpenses * 100) / 100,
-            AccountCode: mappings.center_expenses_account,
+            ...xeroAcctRef(mappings.center_expenses_account),
             Description: `Center Expenses - ${cafeName} - ${report_date}`,
         })
     }
@@ -3319,20 +3329,14 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by) {
         if (bankDebit !== 0) {
             journalLines.push({
                 LineAmount: bankDebit,
-                AccountCode: bankCode,
+                ...xeroAcctRef(bankCode),
                 Description: `Net - ${cafeName} - ${report_date}`,
             })
         }
     }
 
     if (journalLines.length === 0) {
-        // Nothing to post
-        const historyId = randomUUID()
-        await pool.execute(
-            'INSERT INTO xero_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
-            [historyId, cafe_id, cafeName, report_date, 'success', sent_by]
-        )
-        return { ok: true, totals: { top_ups: totalTopUps, shop_sales: totalShopSales, refunds: totalRefunds, center_expenses: totalExpenses } }
+        return { ok: false, status: 400, message: `No reportable amounts found for ${cafeName} on ${report_date}. All totals are zero or no account mappings are configured.` }
     }
 
     // ── POST ManualJournal to Xero ────────────────────────────────────────────
@@ -3340,7 +3344,8 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by) {
         Narration: description,
         JournalLines: journalLines,
         Date: report_date,
-        ShowOnCashBasisReports: false,
+        Status: 'POSTED',
+        LineAmountTypes: 'NOTAX',
     }
 
     const xeroResult = await xeroHttpsRequest(`${XERO_API_BASE}/ManualJournals`, {
@@ -3358,10 +3363,29 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by) {
 
     if (xeroResult.statusCode === 200 || xeroResult.statusCode === 201) {
         let xeroJournalId = ''
+        let hasErrors = false
+        let validationMsg = ''
         try {
             const xeroBody = JSON.parse(xeroResult.body)
-            xeroJournalId = (xeroBody.ManualJournals && xeroBody.ManualJournals[0] && xeroBody.ManualJournals[0].ManualJournalID) || ''
+            const journal = xeroBody.ManualJournals && xeroBody.ManualJournals[0]
+            if (journal) {
+                xeroJournalId = journal.ManualJournalID || ''
+                if (journal.HasErrors || (journal.ValidationErrors && journal.ValidationErrors.length > 0)) {
+                    hasErrors = true
+                    validationMsg = (journal.ValidationErrors && journal.ValidationErrors[0] && journal.ValidationErrors[0].Message) || 'Xero validation error'
+                }
+            }
         } catch {}
+
+        if (hasErrors) {
+            console.error('[Xero] ManualJournal validation error:', validationMsg)
+            await pool.execute(
+                'INSERT INTO xero_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
+                [historyId, cafe_id, cafeName, report_date, 'failed', sent_by]
+            )
+            await logActivity(sent_by, 'xero_report_failed', `Xero report failed for ${cafeName} on ${report_date}: ${validationMsg}`)
+            return { ok: false, status: 422, message: validationMsg }
+        }
 
         await pool.execute(
             'INSERT INTO xero_send_history (id, cafe_id, cafe_name, report_date, status, sent_by) VALUES (?,?,?,?,?,?)',
