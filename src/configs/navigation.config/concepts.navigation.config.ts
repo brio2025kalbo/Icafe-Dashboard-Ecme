@@ -105,6 +105,22 @@ const conceptsNavigationConfig: NavigationTree[] = [
                         },
                         subMenu: [],
                     },
+                    {
+                        key: 'concepts.account.users',
+                        path: `${CONCEPTS_PREFIX_PATH}/account/users`,
+                        title: 'Users',
+                        translateKey: 'nav.conceptsAccount.users',
+                        icon: 'accountRoleAndPermission',
+                        type: NAV_ITEM_TYPE_ITEM,
+                        authority: [ADMIN],
+                        meta: {
+                            description: {
+                                translateKey: 'nav.conceptsAccount.usersDesc',
+                                label: 'Manage all users',
+                            },
+                        },
+                        subMenu: [],
+                    },
                 ],
             },            
             {

@@ -267,6 +267,16 @@ const conceptsRoute: Routes = [
             pageContainerType: 'contained',
         },
     },
+    {
+        key: 'concepts.account.users',
+        path: `${CONCEPTS_PREFIX_PATH}/account/users`,
+        component: lazy(() => import('@/views/concepts/accounts/Users')),
+        authority: [ADMIN],
+        meta: {
+            pageContainerType: 'contained',
+            pageBackgroundType: 'plain',
+        },
+    },
     /* {
         key: 'concepts.helpCenter.supportHub',
         path: `${CONCEPTS_PREFIX_PATH}/help-center/support-hub`,

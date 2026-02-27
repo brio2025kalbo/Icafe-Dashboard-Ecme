@@ -52,3 +52,41 @@ export async function apiGetPricingPlans<T>() {
         method: 'get',
     })
 }
+
+export async function apiGetUsers<T>() {
+    return ApiService.fetchDataWithAxios<T>({
+        url: '/users',
+        method: 'get',
+    })
+}
+
+export async function apiCreateUser<T>(data: {
+    username: string
+    email: string
+    password: string
+    role: string
+}) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: '/users',
+        method: 'post',
+        data,
+    })
+}
+
+export async function apiUpdateUser<T>(
+    id: string,
+    data: { username?: string; role?: string; is_active?: number },
+) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/users/${id}`,
+        method: 'put',
+        data,
+    })
+}
+
+export async function apiDeleteUser<T>(id: string) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/users/${id}`,
+        method: 'delete',
+    })
+}

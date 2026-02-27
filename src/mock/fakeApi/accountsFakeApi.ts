@@ -93,3 +93,52 @@ mock.onGet(`/api/rbac/roles`).reply(() => {
 mock.onGet(`/api/pricing`).reply(() => {
     return [200, pricingPlansData]
 })
+
+// Simple in-memory user list derived from userDetailData for the Users CRUD page
+let mockUsers = userDetailData.map((u: any, i: number) => ({
+    id: u.id,
+    username: u.name,
+    email: u.email,
+    role: u.role || 'staff',
+    is_active: u.status === 'blocked' ? 0 : 1,
+    created_at: new Date(Date.now() - i * 86400000).toISOString(),
+}))
+
+mock.onGet(`/api/users`).reply(() => {
+    return [200, { ok: true, users: [...mockUsers] }]
+})
+
+mock.onPost(`/api/users`).reply((config) => {
+    const { username, email, role } = JSON.parse(config.data || '{}')
+    const newUser = {
+        id: String(Date.now()),
+        username: username || 'New User',
+        email: email || '',
+        role: role === 'admin' ? 'admin' : 'staff',
+        is_active: 1,
+        created_at: new Date().toISOString(),
+    }
+    mockUsers = [...mockUsers, newUser]
+    return [201, { ok: true, user: newUser }]
+})
+
+mock.onPut(/\/api\/users\/[^/]+$/).reply((config) => {
+    const id = config.url?.split('/').pop() ?? ''
+    const { username, role, is_active } = JSON.parse(config.data || '{}')
+    mockUsers = mockUsers.map((u) => {
+        if (u.id !== id) return u
+        return {
+            ...u,
+            ...(username !== undefined ? { username } : {}),
+            ...(role !== undefined ? { role } : {}),
+            ...(is_active !== undefined ? { is_active } : {}),
+        }
+    })
+    return [200, { ok: true }]
+})
+
+mock.onDelete(/\/api\/users\/[^/]+$/).reply((config) => {
+    const id = config.url?.split('/').pop() ?? ''
+    mockUsers = mockUsers.filter((u) => u.id !== id)
+    return [200, { ok: true }]
+})
