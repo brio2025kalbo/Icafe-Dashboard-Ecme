@@ -54,6 +54,11 @@ type XeroMappings = {
     bank_account: string
 }
 
+type CenterExpensesMapping = {
+    prefix: string
+    account: string
+}
+
 type XeroSchedule = {
     schedule_type: string
     schedule_time: string
@@ -310,7 +315,7 @@ function AccountMappingsCard() {
     const [topups, setTopups] = useState('')
     const [shopSales, setShopSales] = useState('')
     const [refunds, setRefunds] = useState('')
-    const [centerExpenses, setCenterExpenses] = useState('')
+    const [centerExpensesMappings, setCenterExpensesMappings] = useState<CenterExpensesMapping[]>([{ prefix: '', account: '' }])
     const [bankAccount, setBankAccount] = useState('')
     const [saving, setSaving] = useState(false)
 
@@ -319,7 +324,18 @@ function AccountMappingsCard() {
             setTopups(mappings.topups_account || '')
             setShopSales(mappings.shop_sales_account || '')
             setRefunds(mappings.refunds_account || '')
-            setCenterExpenses(mappings.center_expenses_account || '')
+            // Parse center_expenses_account: JSON array or legacy single value
+            try {
+                const parsed = JSON.parse(mappings.center_expenses_account || '[]')
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setCenterExpensesMappings(parsed)
+                } else {
+                    setCenterExpensesMappings([{ prefix: '', account: '' }])
+                }
+            } catch {
+                const legacy = mappings.center_expenses_account || ''
+                setCenterExpensesMappings([{ prefix: '', account: legacy }])
+            }
             setBankAccount(mappings.bank_account || '')
         }
     }, [mappings])
@@ -336,7 +352,7 @@ function AccountMappingsCard() {
                 topups_account: topups,
                 shop_sales_account: shopSales,
                 refunds_account: refunds,
-                center_expenses_account: centerExpenses,
+                center_expenses_account: JSON.stringify(centerExpensesMappings.filter(m => m.account)),
                 bank_account: bankAccount,
             })
             mutate('/xero/mappings')
@@ -421,20 +437,54 @@ function AccountMappingsCard() {
                                 <label className="block text-sm font-medium mb-1">
                                     Center Expenses Account
                                 </label>
-                                <Select
-                                    placeholder="Select account for Center Expenses"
-                                    options={accountOptions}
-                                    value={
-                                        accountOptions.find(
-                                            (o) => o.value === centerExpenses,
-                                        ) || null
-                                    }
-                                    onChange={(opt) =>
-                                        setCenterExpenses(
-                                            (opt as SelectOption)?.value || '',
-                                        )
-                                    }
-                                />
+                                <div className="flex flex-col gap-2">
+                                    {centerExpensesMappings.map((mapping, idx) => (
+                                        <div key={idx} className="flex items-center gap-2">
+                                            <Input
+                                                className="w-28 shrink-0"
+                                                placeholder="Prefix (e.g. 403)"
+                                                value={mapping.prefix}
+                                                onChange={(e) => {
+                                                    const updated = [...centerExpensesMappings]
+                                                    updated[idx] = { ...updated[idx], prefix: (e.target as HTMLInputElement).value }
+                                                    setCenterExpensesMappings(updated)
+                                                }}
+                                            />
+                                            <div className="flex-1">
+                                                <Select
+                                                    placeholder="Select account"
+                                                    options={accountOptions}
+                                                    value={accountOptions.find((o) => o.value === mapping.account) || null}
+                                                    onChange={(opt) => {
+                                                        const updated = [...centerExpensesMappings]
+                                                        updated[idx] = { ...updated[idx], account: (opt as SelectOption)?.value || '' }
+                                                        setCenterExpensesMappings(updated)
+                                                    }}
+                                                />
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                variant="default"
+                                                onClick={() => {
+                                                    if (centerExpensesMappings.length === 1) {
+                                                        setCenterExpensesMappings([{ prefix: '', account: '' }])
+                                                    } else {
+                                                        setCenterExpensesMappings(centerExpensesMappings.filter((_, i) => i !== idx))
+                                                    }
+                                                }}
+                                            >
+                                                ✕
+                                            </Button>
+                                        </div>
+                                    ))}
+                                    <Button
+                                        size="sm"
+                                        variant="default"
+                                        onClick={() => setCenterExpensesMappings([...centerExpensesMappings, { prefix: '', account: '' }])}
+                                    >
+                                        + Add Row
+                                    </Button>
+                                </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium mb-1">
