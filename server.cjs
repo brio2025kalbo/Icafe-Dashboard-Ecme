@@ -311,13 +311,14 @@ async function initDb() {
         // Xero account mappings
         await conn.execute(`
             CREATE TABLE IF NOT EXISTS xero_account_mappings (
-                id                      INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                topups_account          VARCHAR(255) NOT NULL DEFAULT '',
-                shop_sales_account      VARCHAR(255) NOT NULL DEFAULT '',
-                refunds_account         VARCHAR(255) NOT NULL DEFAULT '',
-                center_expenses_account VARCHAR(255) NOT NULL DEFAULT '',
-                bank_account            VARCHAR(255) NOT NULL DEFAULT '',
-                updated_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                id                               INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                topups_account                   VARCHAR(255) NOT NULL DEFAULT '',
+                shop_sales_account               VARCHAR(255) NOT NULL DEFAULT '',
+                refunds_account                  VARCHAR(255) NOT NULL DEFAULT '',
+                center_expenses_account          TEXT         NOT NULL DEFAULT '',
+                center_expenses_fallback_account VARCHAR(255) NOT NULL DEFAULT '',
+                bank_account                     VARCHAR(255) NOT NULL DEFAULT '',
+                updated_at                       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
 
@@ -382,6 +383,26 @@ async function initDb() {
                 if (err.code !== 'ER_DUP_FIELDNAME') {
                     console.error(`[DB] Error adding ${col.name} to users:`, err.message)
                 }
+            }
+        }
+
+        // Migrate: change center_expenses_account to TEXT in xero_account_mappings
+        try {
+            await conn.execute("ALTER TABLE xero_account_mappings MODIFY COLUMN center_expenses_account TEXT NOT NULL DEFAULT ''")
+            console.log('[DB] Migrated xero_account_mappings.center_expenses_account to TEXT')
+        } catch (err) {
+            if (err.code !== 'ER_BAD_FIELD_ERROR') {
+                console.error('[DB] Error migrating center_expenses_account:', err.message)
+            }
+        }
+
+        // Migrate: add center_expenses_fallback_account column if it doesn't exist
+        try {
+            await conn.execute("ALTER TABLE xero_account_mappings ADD COLUMN center_expenses_fallback_account VARCHAR(255) NOT NULL DEFAULT '' AFTER center_expenses_account")
+            console.log('[DB] Added center_expenses_fallback_account column to xero_account_mappings')
+        } catch (err) {
+            if (err.code !== 'ER_DUP_FIELDNAME') {
+                console.error('[DB] Error adding center_expenses_fallback_account:', err.message)
             }
         }
 
@@ -3150,6 +3171,7 @@ app.get('/api/xero/mappings', requireAuth, requireAdmin, async (req, res) => {
             shop_sales_account: row.shop_sales_account,
             refunds_account: row.refunds_account,
             center_expenses_account: row.center_expenses_account,
+            center_expenses_fallback_account: row.center_expenses_fallback_account || '',
             bank_account: row.bank_account,
         })
     } catch (e) {
@@ -3160,12 +3182,12 @@ app.get('/api/xero/mappings', requireAuth, requireAdmin, async (req, res) => {
 
 // POST /api/xero/mappings
 app.post('/api/xero/mappings', requireAuth, requireAdmin, async (req, res) => {
-    const { topups_account, shop_sales_account, refunds_account, center_expenses_account, bank_account } = req.body || {}
+    const { topups_account, shop_sales_account, refunds_account, center_expenses_account, center_expenses_fallback_account, bank_account } = req.body || {}
     try {
         await ensureXeroRow('xero_account_mappings')
         await pool.execute(
-            'UPDATE xero_account_mappings SET topups_account=?, shop_sales_account=?, refunds_account=?, center_expenses_account=?, bank_account=? ORDER BY id LIMIT 1',
-            [topups_account || '', shop_sales_account || '', refunds_account || '', center_expenses_account || '', bank_account || '']
+            'UPDATE xero_account_mappings SET topups_account=?, shop_sales_account=?, refunds_account=?, center_expenses_account=?, center_expenses_fallback_account=?, bank_account=? ORDER BY id LIMIT 1',
+            [topups_account || '', shop_sales_account || '', refunds_account || '', center_expenses_account || '', center_expenses_fallback_account || '', bank_account || '']
         )
         await logActivity(req.user.id, 'xero_mappings_update', 'Xero account mappings updated', getIp(req))
         res.json({ ok: true })
@@ -3400,6 +3422,36 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
     const totalIncome = (totalTopUps + totalShopSales) - Math.abs(totalRefunds)
     const bankCode = mappings.bank_account
 
+    // Parse center_expenses_account: supports JSON array [{prefix, account}] or legacy single account string
+    function parseExpenseMappings(stored) {
+        if (!stored) return []
+        try {
+            const parsed = JSON.parse(stored)
+            if (Array.isArray(parsed)) return parsed
+        } catch {}
+        // Legacy: single account ID string
+        return [{ prefix: '', account: stored }]
+    }
+
+    // Find the best-matching expense account for a given log_details string
+    function findExpenseAccount(logDetails, expenseMappings, fallbackAccount) {
+        const detail = String(logDetails || '').trim()
+        for (const m of expenseMappings) {
+            if (m.prefix && detail.startsWith(String(m.prefix).trim())) {
+                return m.account || ''
+            }
+        }
+        // Use explicit fallback account if configured
+        if (fallbackAccount && fallbackAccount.trim()) return fallbackAccount
+        // Legacy catch-all: first mapping with no prefix, or first entry
+        const catchAll = expenseMappings.find(m => !m.prefix)
+        return catchAll ? catchAll.account || '' : (expenseMappings[0]?.account || '')
+    }
+
+    const expenseMappings = parseExpenseMappings(mappings.center_expenses_account)
+    const expenseFallback = mappings.center_expenses_fallback_account || ''
+    const hasExpenseMappings = (expenseMappings.length > 0 && expenseMappings.some(m => m.account)) || !!(expenseFallback && expenseFallback.trim())
+
     // Helper: build the correct account reference for a Xero journal line.
     // Stored values are AccountID (UUID) from the accounts endpoint.
     // If the value somehow contains a short code (legacy), fall back to AccountCode.
@@ -3449,11 +3501,13 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
         }
     }
     // Expense lines — itemized breakdowns when available, aggregated fallback
-    if (totalExpenses !== 0 && mappings.center_expenses_account) {
+    if (totalExpenses !== 0 && hasExpenseMappings) {
         if (allExpenseItems.length > 0) {
             for (const item of allExpenseItems) {
                 const amount = Math.round(Math.abs(parseFloat(item.log_money) || 0) * 100) / 100
                 if (amount === 0) continue
+                const acctId = findExpenseAccount(item.log_details, expenseMappings, expenseFallback)
+                if (!acctId) continue
                 const desc = item.log_details
                     ? `Expense: ${item.log_details} (${item.staff_name}) - ${cafeName} - ${report_date}`
                     : `Expense (${item.staff_name}) - ${cafeName} - ${report_date}`
@@ -3461,18 +3515,21 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
                     // iCafe returns expenses as a negative value; use absolute value so the
                     // expense account is debited (positive LineAmount) in the ManualJournal.
                     LineAmount: amount,
-                    ...xeroAcctRef(mappings.center_expenses_account),
+                    ...xeroAcctRef(acctId),
                     Description: desc,
                 })
             }
         } else {
-            journalLines.push({
-                // iCafe returns expenses as a negative value; use absolute value so the
-                // expense account is debited (positive LineAmount) in the ManualJournal.
-                LineAmount: Math.round(Math.abs(totalExpenses) * 100) / 100,
-                ...xeroAcctRef(mappings.center_expenses_account),
-                Description: `Center Expenses - ${cafeName} - ${report_date}`,
-            })
+            const acctId = expenseFallback || expenseMappings[0]?.account || ''
+            if (acctId) {
+                journalLines.push({
+                    // iCafe returns expenses as a negative value; use absolute value so the
+                    // expense account is debited (positive LineAmount) in the ManualJournal.
+                    LineAmount: Math.round(Math.abs(totalExpenses) * 100) / 100,
+                    ...xeroAcctRef(acctId),
+                    Description: `Center Expenses - ${cafeName} - ${report_date}`,
+                })
+            }
         }
     }
 
