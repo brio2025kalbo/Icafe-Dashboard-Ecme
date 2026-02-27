@@ -2,6 +2,7 @@ import { useRef, useImperativeHandle, useState, useEffect, useCallback } from 'r
 import AuthContext from './AuthContext'
 import appConfig from '@/configs/app.config'
 import { useSessionUser, useToken } from '@/store/authStore'
+import { useSWRConfig } from 'swr'
 import { apiSignIn, apiSignOut, apiSignUp } from '@/services/AuthService'
 import { REDIRECT_URL_KEY } from '@/constants/app.constant'
 import { TOKEN_NAME_IN_STORAGE } from '@/constants/api.constant'
@@ -46,6 +47,7 @@ function AuthProvider({ children }: AuthProviderProps) {
     )
     const { token, setToken } = useToken()
     const [tokenState, setTokenState] = useState(token)
+    const { cache } = useSWRConfig()
 
     // Start in verifying state if there is a persisted token to validate.
     // This blocks rendering until we confirm the token is still valid on the server.
@@ -164,6 +166,12 @@ function AuthProvider({ children }: AuthProviderProps) {
         // Clear the cafe list so the next user starts fresh
         setCafes([])
         setSelectedCafeId(null)
+        
+        // Clear SWR cache to prevent stale data when a different user logs in
+        if (cache instanceof Map) {
+            // @ts-ignore
+            cache.clear()
+        }
     }
 
     const signIn = async (values: SignInCredential): AuthResult => {

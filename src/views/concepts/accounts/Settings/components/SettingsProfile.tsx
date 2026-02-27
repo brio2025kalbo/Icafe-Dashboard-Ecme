@@ -101,8 +101,9 @@ const CustomControl = ({ children, ...props }: ControlProps<CountryOption>) => {
 }
 
 const SettingsProfile = () => {
+    const { user } = useAuth()
     const { data, mutate } = useSWR(
-        '/api/settings/profile/',
+        user?.userId ? [`/api/settings/profile/`, user.userId] : null,
         () => apiGetSettingsProfile<GetSettingsProfileResponse>(),
         {
             revalidateOnFocus: false,
@@ -137,7 +138,6 @@ const SettingsProfile = () => {
         return valid
     }
 
-    const { user } = useAuth()
     const { token } = useToken()
     const setUser = useSessionUser((state) => state.setUser)
     const [uploading, setUploading] = useState(false)
