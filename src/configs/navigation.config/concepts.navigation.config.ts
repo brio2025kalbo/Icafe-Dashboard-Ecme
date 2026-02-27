@@ -108,6 +108,57 @@ const conceptsNavigationConfig: NavigationTree[] = [
                 ],
             },            
             {
+                key: 'concepts.customers',
+                path: '',
+                title: 'Customers',
+                translateKey: 'nav.conceptsCustomers.customers',
+                icon: 'customers',
+                type: NAV_ITEM_TYPE_COLLAPSE,
+                authority: [ADMIN, USER],
+                meta: {
+                    description: {
+                        translateKey: 'nav.conceptsCustomers.customersDesc',
+                        label: 'Manage your customers',
+                    },
+                },
+                subMenu: [
+                    {
+                        key: 'concepts.customers.customerList',
+                        path: `${CONCEPTS_PREFIX_PATH}/customers/customer-list`,
+                        title: 'Customer List',
+                        translateKey: 'nav.conceptsCustomers.customerList',
+                        icon: 'customerList',
+                        type: NAV_ITEM_TYPE_ITEM,
+                        authority: [ADMIN, USER],
+                        meta: {
+                            description: {
+                                translateKey:
+                                    'nav.conceptsCustomers.customerListDesc',
+                                label: 'View all customers',
+                            },
+                        },
+                        subMenu: [],
+                    },
+                    {
+                        key: 'concepts.customers.customerCreate',
+                        path: `${CONCEPTS_PREFIX_PATH}/customers/customer-create`,
+                        title: 'Create Customer',
+                        translateKey: 'nav.conceptsCustomers.customerCreate',
+                        icon: 'customerCreate',
+                        type: NAV_ITEM_TYPE_ITEM,
+                        authority: [ADMIN, USER],
+                        meta: {
+                            description: {
+                                translateKey:
+                                    'nav.conceptsCustomers.customerCreateDesc',
+                                label: 'Add a new customer',
+                            },
+                        },
+                        subMenu: [],
+                    },
+                ],
+            },
+            {
                 key: 'concepts.calendar',
                 path: `${CONCEPTS_PREFIX_PATH}/calendar`,
                 title: 'Calendar',

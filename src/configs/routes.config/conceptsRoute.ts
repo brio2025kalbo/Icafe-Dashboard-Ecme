@@ -4,25 +4,6 @@ import { ADMIN, USER } from '@/constants/roles.constant'
 import type { Routes } from '@/@types/routes'
 
 const conceptsRoute: Routes = [
-    /* {
-        key: 'concepts.ai.chat',
-        path: `${CONCEPTS_PREFIX_PATH}/ai/chat`,
-        component: lazy(() => import('@/views/concepts/ai/Chat')),
-        authority: [ADMIN, USER],
-        meta: {
-            pageContainerType: 'contained',
-        },
-    },
-    {
-        key: 'concepts.ai.image',
-        path: `${CONCEPTS_PREFIX_PATH}/ai/image`,
-        component: lazy(() => import('@/views/concepts/ai/Image')),
-        authority: [ADMIN, USER],
-        meta: {
-            pageContainerType: 'contained',
-            pageBackgroundType: 'plain',
-        },
-    },
     {
         key: 'concepts.customers.customerList',
         path: `${CONCEPTS_PREFIX_PATH}/customers/customer-list`,
@@ -76,7 +57,7 @@ const conceptsRoute: Routes = [
             pageContainerType: 'contained',
         },
     },
-    {
+    /* {
         key: 'concepts.products.productList',
         path: `${CONCEPTS_PREFIX_PATH}/products/product-list`,
         component: lazy(() => import('@/views/concepts/products/ProductList')),
