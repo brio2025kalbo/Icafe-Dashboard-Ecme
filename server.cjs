@@ -3436,8 +3436,9 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
     // Find the best-matching expense account for a given log_details string
     function findExpenseAccount(logDetails, expenseMappings, fallbackAccount) {
         const detail = String(logDetails || '').trim()
+        const detailLower = detail.toLowerCase()
         for (const m of expenseMappings) {
-            if (m.prefix && detail.startsWith(String(m.prefix).trim())) {
+            if (m.prefix && detailLower.startsWith(String(m.prefix).trim().toLowerCase())) {
                 return m.account || ''
             }
         }
