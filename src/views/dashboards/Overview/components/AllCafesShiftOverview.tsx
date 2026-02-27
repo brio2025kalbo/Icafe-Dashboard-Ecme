@@ -246,20 +246,7 @@ const AllCafesShiftOverview = ({ refreshSignal = 0 }: Props) => {
                         )}
                     </div>
                 </div>
-                {/* <Select
-                    className="min-w-[160px]"
-                    size="sm"
-                    placeholder="Filter cafe"
-                    value={selectedFilterOption}
-                    options={filterOptions}
-                    isSearchable={false}
-                    onChange={(option) => {
-                        if (option?.value) {
-                            setFilterCafeId(option.value)
-                        }
-                    }}
-                /> */}
-                <div className="flex items-center gap-3 ml-auto flex-wrap">
+                <div className="flex flex-col gap-2 sm:items-end">
                     <Select
                         className="w-full sm:min-w-[160px] sm:w-auto"
                         size="sm"
