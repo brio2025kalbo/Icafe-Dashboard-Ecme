@@ -119,6 +119,12 @@ export type ShiftBreakdownRow = {
     refunds: number
     center_expenses: number
     total_profit: number
+    /** Itemised expense entries from the API */
+    expense_items?: ExpenseItem[]
+    /** Itemised refund entries from the billing logs API */
+    refund_items?: RefundItem[]
+    /** Refund reason from the API */
+    refund_reason?: string
 }
 
 export type PeriodType = 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -171,6 +177,7 @@ export type SessionData = {
     total_session: number
     avg_duration: number
     unique_guests_count: number
+    new_members_number: number
 }
 
 export type CustomerAnalysisData = {
@@ -210,9 +217,56 @@ export type PcSpendItem = {
     total_spend: string
 }
 
+// ─── Report Data (Expense) Types ──────────────────────────────────────────────
+
+export type ExpenseItem = {
+    log_money: string
+    log_details: string
+}
+
+// ─── Refund / Billing Log Types ───────────────────────────────────────────────
+
+export type RefundItem = {
+    log_money: string
+    log_details: string
+    log_member_account?: string
+    log_staff_name?: string
+}
+
+export type BillingLogEntry = {
+    log_money: string
+    log_details: string
+    [key: string]: unknown
+}
+
+export type BillingLogPagingInfo = {
+    total_records: number
+    pages: number
+    page: number
+    page_next: number
+    [key: string]: unknown
+}
+
+export type BillingLogData = {
+    items: BillingLogEntry[]
+    paging_info: BillingLogPagingInfo
+}
+
+export type BillingLogResponse = IcafeApiResponse<BillingLogData>
+
+export type ReportDataIncome = {
+    expense?: {
+        amount: number
+        items?: ExpenseItem[]
+    }
+    [key: string]: unknown
+}
+
 export type ReportDataWithGames = {
     game?: GameItem[]
     top_five_pc_spend?: PcSpendItem[]
+    income?: ReportDataIncome
+    new_members_number?: number
     [key: string]: unknown
 }
 

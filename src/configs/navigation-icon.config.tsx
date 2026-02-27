@@ -91,6 +91,7 @@ import {
     PiCircleHalfTiltDuotone,
     PiHouseLineDuotone,
     PiSquareSplitHorizontalDuotone,
+    PiBookBookmarkDuotone,
 } from 'react-icons/pi'
 import type { JSX } from 'react'
 
@@ -198,6 +199,9 @@ const navigationIcon: NavigationIcons = {
     sharedComponentDoc: <PiShareNetworkDuotone />,
     utilsDoc: <PiToolboxDuotone />,
     changeLog: <PiCodeDuotone />,
+    quickbooks: <PiBookBookmarkDuotone />,
+    googlesheets: <PiTableDuotone />,
+    xero: <PiCurrencyCircleDollarDuotone />,
 }
 
 export default navigationIcon

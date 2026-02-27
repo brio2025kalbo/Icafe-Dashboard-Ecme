@@ -8,6 +8,7 @@ import type {
     IcafeApiResponse,
     ShiftListResponse,
     ShiftDetailResponse,
+    ShiftDetailData,
     ShiftListParams,
     ShiftStats,
     ShiftBreakdownRow,
@@ -16,12 +17,41 @@ import type {
     IcafeProductsResponse,
     CustomerAnalysisResponse,
     PcStatusResponse,
+    ReportDataWithGames,
+    ExpenseItem,
+    RefundItem,
 } from '@/views/dashboards/Overview/icafeTypes'
 
 const icafeAxios = axios.create({
     baseURL: appConfig.reportsApiPrefix,
     timeout: 60000, // 60s for slow connections
 })
+
+// ─── Concurrency-limited Promise.allSettled ──────────────────────────────────
+// Runs at most `limit` tasks concurrently, avoiding upstream 507 rate limits.
+const DEFAULT_CONCURRENCY = 2
+
+async function throttledAllSettled<T>(
+    tasks: Array<() => Promise<T>>,
+    limit = DEFAULT_CONCURRENCY,
+): Promise<PromiseSettledResult<T>[]> {
+    const results: PromiseSettledResult<T>[] = new Array(tasks.length)
+    let idx = 0
+
+    async function worker() {
+        while (idx < tasks.length) {
+            const i = idx++
+            try {
+                results[i] = { status: 'fulfilled', value: await tasks[i]() }
+            } catch (reason) {
+                results[i] = { status: 'rejected', reason }
+            }
+        }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => worker()))
+    return results
+}
 
 function getCafeById(cafeId: string) {
     const cafe = useCafeStore.getState().cafes.find((c) => c.id === cafeId)
@@ -215,15 +245,129 @@ export async function apiGetShiftBreakdown(
 
     if (!items || items.length === 0) return []
 
-    const details = await Promise.allSettled(
-        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+    // Fetch shift details (throttled to avoid upstream rate limits)
+    const details = await throttledAllSettled(
+        items.map((s) => () => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
     )
 
-    return details.reduce<ShiftBreakdownRow[]>((acc, result, idx) => {
-        if (result.status !== 'fulfilled') return acc
-        const d = result.value.data
-        if (!d) return acc
+    // Build preliminary rows and collect shifts that have expenses
+    const prelimRows: Array<{
+        d: ShiftDetailData
+        rawId: string | number
+        isActive: boolean
+        staffName: string
+        expenses: number
+    }> = []
 
+    for (let idx = 0; idx < details.length; idx++) {
+        const result = details[idx]
+        if (result.status !== 'fulfilled') continue
+        const d = result.value.data
+        if (!d) continue
+
+        const rawId    = items![idx].shift_id ?? items![idx].id
+        const isActive = Number(rawId) < 0
+        const staffName = d.staff_name || String(items![idx].shift_staff_name ?? '')
+        const expenses  = Number(d.center_expenses) || 0
+
+        prelimRows.push({ d, rawId, isActive, staffName, expenses })
+    }
+
+    // Fetch reportData per shift to get shift-specific expense items.
+    // We scope each call to the shift's own start/end dates so that
+    // weekly/monthly/yearly views don't combine expenses across shifts.
+    const shiftExpenseItems: Array<ExpenseItem[] | undefined> = new Array(prelimRows.length).fill(undefined)
+    const expenseFetchIndices: number[] = []
+    const expenseFetchTasks: Array<() => Promise<IcafeApiResponse<ReportDataWithGames>>> = []
+
+    for (let i = 0; i < prelimRows.length; i++) {
+        const { d, staffName, expenses } = prelimRows[i]
+        if (expenses === 0 || !staffName) continue
+
+        // Extract dates from the shift's start_time / end_time
+        const shiftStart = (d.start_time || '').split(' ')[0]
+        const shiftEnd   = (d.end_time   || '').split(' ')[0]
+        if (!shiftStart) continue
+
+        // For the reportData API the end date must be at least the next day
+        let dateEnd = shiftEnd || shiftStart
+        if (dateEnd === shiftStart) {
+            const parts = shiftStart.split('-').map(Number)
+            const nd    = new Date(parts[0], parts[1] - 1, parts[2])
+            nd.setDate(nd.getDate() + 1)
+            dateEnd = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`
+        }
+
+        expenseFetchIndices.push(i)
+        expenseFetchTasks.push(() =>
+            apiGetReportData<ReportDataWithGames>(cafeId, {
+                date_start:     shiftStart,
+                date_end:       dateEnd,
+                time_start:     params.time_start ?? '06:00',
+                time_end:       params.time_end   ?? '05:59',
+                log_staff_name: staffName,
+            }).catch(() => null as unknown as IcafeApiResponse<ReportDataWithGames>),
+        )
+    }
+
+    if (expenseFetchTasks.length > 0) {
+        const results = await throttledAllSettled(expenseFetchTasks)
+        for (let j = 0; j < results.length; j++) {
+            const r = results[j]
+            if (r.status !== 'fulfilled' || !r.value) continue
+            const expItems = r.value?.data?.income?.expense?.items
+            if (Array.isArray(expItems) && expItems.length > 0) {
+                shiftExpenseItems[expenseFetchIndices[j]] = expItems
+            }
+        }
+    }
+
+    // Fetch billing logs once for the entire date range, then distribute
+    // refund items to each shift row by matching log_staff_name.
+    // This avoids N separate paginated billing log calls (one per shift).
+    const shiftRefundItems: Array<RefundItem[] | undefined> = new Array(prelimRows.length).fill(undefined)
+    const hasAnyRefunds = prelimRows.some(({ d }) => (Number(d.cash_refund) || 0) !== 0)
+
+    if (hasAnyRefunds) {
+        // When date_start === date_end (daily business-day view), the time
+        // window 06:00→05:59 spans into the next calendar day. The billingLogs
+        // API requires date_end to be the next day in this case, otherwise it
+        // returns "Time range error" (06:00 > 05:59 on the same date).
+        let blDateEnd = params.date_end
+        if (params.date_start === params.date_end) {
+            const parts = params.date_start.split('-').map(Number)
+            const nd = new Date(parts[0], parts[1] - 1, parts[2])
+            nd.setDate(nd.getDate() + 1)
+            blDateEnd = `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`
+        }
+        const allRefunds = await apiGetBillingLogs(cafeId, {
+            date_start: params.date_start,
+            date_end:   blDateEnd,
+            time_start: params.time_start ?? '06:00',
+            time_end:   params.time_end   ?? '05:59',
+            event:      'TOPUP',
+        }).catch(() => [] as RefundItem[])
+
+        if (allRefunds.length > 0) {
+            // Distribute refund items to shifts by matching staff name
+            for (let i = 0; i < prelimRows.length; i++) {
+                const { d, staffName } = prelimRows[i]
+                const refunds = Number(d.cash_refund) || 0
+                if (refunds === 0) continue
+
+                const staffLower = staffName.toLowerCase()
+                const filtered = allRefunds.filter((item) => {
+                    if (!item.log_staff_name) return true
+                    return item.log_staff_name.toLowerCase() === staffLower
+                })
+                if (filtered.length > 0) {
+                    shiftRefundItems[i] = filtered
+                }
+            }
+        }
+    }
+
+    return prelimRows.map(({ d, rawId, isActive, staffName, expenses }, idx) => {
         const cash         = Number(d.cash) || 0
         const shopSalesArr = Array.isArray(d.shop_sales) ? d.shop_sales : []
         const shopSales    = shopSalesArr.reduce((sum: number, item: { cash?: string | number }) =>
@@ -231,17 +375,11 @@ export async function apiGetShiftBreakdown(
         const digitalTopups = (Number(d.qr_topup) || 0) + (Number(d.credit_card) || 0)
         const topUps        = (cash - shopSales) + digitalTopups
         const refunds       = Number(d.cash_refund)     || 0
-        const expenses      = Number(d.center_expenses) || 0
         const totalProfit   = Number(d.total_amount)    || 0
-        // Active shifts have a negative shift_id in the shift list.
-        // The shift detail API returns the current time as end_time for active
-        // shifts (not '-'), so we rely on the shift_id sign to detect them.
-        const rawId    = items![idx].shift_id ?? items![idx].id
-        const isActive = Number(rawId) < 0
 
-        acc.push({
+        return {
             shift_id:        rawId,
-            staff_name:      d.staff_name  || String(items![idx].shift_staff_name ?? ''),
+            staff_name:      staffName,
             start_time:      d.start_time  || '',
             end_time:        isActive ? '-' : (d.end_time || '-'),
             is_active:       isActive,
@@ -250,9 +388,11 @@ export async function apiGetShiftBreakdown(
             refunds,
             center_expenses: expenses,
             total_profit:    totalProfit,
-        })
-        return acc
-    }, [])
+            expense_items:   expenses !== 0 ? shiftExpenseItems[idx] : undefined,
+            refund_items:    refunds !== 0 ? shiftRefundItems[idx] : undefined,
+            refund_reason:   d.reason ? String(d.reason) : undefined,
+        } as ShiftBreakdownRow
+    })
 }
 
 // ─── Aggregated Stats ─────────────────────────────────────────────────────────
@@ -301,9 +441,9 @@ export async function apiGetShiftStats(
 
     if (items.length === 0) return empty
 
-    // Fetch each shift detail in parallel to get the real financial fields
-    const details = await Promise.allSettled(
-        items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+    // Fetch each shift detail (throttled to avoid upstream rate limits)
+    const details = await throttledAllSettled(
+        items.map((s) => () => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
     )
 
     return details.reduce<ShiftStats>((acc, result) => {
@@ -373,6 +513,94 @@ export async function apiGetCafeProducts(
     return allProducts
 }
 
+// ─── Billing Logs (Refund Items) ──────────────────────────────────────────────
+
+export async function apiGetBillingLogs(
+    cafeId: string,
+    params: {
+        date_start: string
+        date_end: string
+        time_start: string
+        time_end: string
+        event?: string
+    },
+): Promise<RefundItem[]> {
+    const cafe = getCafeById(cafeId)
+    const refundItems: RefundItem[] = []
+    let page = 1
+    let totalPages = 1
+
+    do {
+        const response = await icafeAxios.get(
+            `/cafe/${cafe.cafeId}/billingLogs`,
+            {
+                params: { ...params, page },
+                headers: { Authorization: `Bearer ${cafe.apiKey}` },
+            },
+        )
+
+        // The iCafeCloud API may nest data differently across endpoints.
+        // Try multiple structures: { data: { items: [] } }, { data: [] },
+        // or even top-level { items: [] }.
+        const body = response.data as Record<string, unknown>
+        const inner = body?.data as Record<string, unknown> | unknown[] | undefined
+
+        let entries: unknown[]
+        let paging: Record<string, unknown> | undefined
+
+        if (Array.isArray(inner)) {
+            // response: { code, message, data: [ ...entries ] }
+            entries = inner
+            paging = body?.paging_info as Record<string, unknown> | undefined
+        } else if (inner && typeof inner === 'object') {
+            const innerObj = inner as Record<string, unknown>
+            // response: { code, message, data: { items: [...], paging_info: {...} } }
+            const maybeItems = innerObj.items
+            if (Array.isArray(maybeItems)) {
+                entries = maybeItems
+            } else {
+                // No known structure — try to iterate all array-valued keys
+                entries = Object.values(innerObj).find(Array.isArray) as unknown[] ?? []
+            }
+            paging = innerObj.paging_info as Record<string, unknown> | undefined
+        } else {
+            entries = []
+        }
+
+        if (page === 1) {
+            console.log(`[BillingLogs] page ${page} response keys:`,
+                typeof body === 'object' && body ? Object.keys(body) : typeof body,
+                '| inner type:', Array.isArray(inner) ? 'array' : typeof inner,
+                '| entries found:', entries.length,
+                '| paging:', paging ? JSON.stringify(paging) : 'none')
+        }
+
+        if (entries.length === 0) break
+
+        for (const raw of entries) {
+            const entry = raw as Record<string, unknown>
+            const money = parseFloat(String(entry.log_money ?? entry.money ?? 0)) || 0
+            if (money < 0) {
+                refundItems.push({
+                    log_money: String(entry.log_money ?? entry.money ?? money),
+                    log_details: String(entry.log_details ?? entry.log_detail ?? entry.details ?? ''),
+                    log_member_account: entry.log_member_account ? String(entry.log_member_account) : undefined,
+                    log_staff_name: entry.log_staff_name ? String(entry.log_staff_name) : undefined,
+                })
+            }
+        }
+
+        if (!paging) {
+            // No paging info available – can only read the current page
+            break
+        }
+        totalPages = Number(paging.pages ?? paging.total_pages ?? 1) || 1
+        page++
+    } while (page <= totalPages)
+
+    return refundItems
+}
+
 // ─── Top Products ─────────────────────────────────────────────────────────────
 
 export async function apiGetTopProducts(
@@ -403,10 +631,10 @@ export async function apiGetTopProducts(
 
     if (!items || items.length === 0) return []
 
-    // Fetch shift details and product catalog in parallel
+    // Fetch shift details (throttled) and product catalog concurrently
     const [detailResults, catalogResult] = await Promise.all([
-        Promise.allSettled(
-            items.map((s) => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
+        throttledAllSettled(
+            items.map((s) => () => apiGetShiftDetail(cafeId, String(s.shift_id ?? s.id))),
         ),
         apiGetCafeProducts(cafeId).catch(() => null),
     ])

@@ -109,7 +109,7 @@ const ComputerUtilization = ({ refreshSignal = 0 }: { refreshSignal?: number }) 
             {/* Combined stats card */}
             <Card>
                 <div className="flex items-center justify-between mb-4">
-                    <h4>Computer Utilization</h4>
+                    <h4>PC Status</h4>
                 </div>
                 {loading && !hasLoadedOnce.current && (
                     <div className="text-center text-gray-400 py-4 text-sm">
@@ -127,7 +127,7 @@ const ComputerUtilization = ({ refreshSignal = 0 }: { refreshSignal?: number }) 
                             <StatBox
                                 icon={<TbDeviceDesktop className="text-lg" />}
                                 iconClass="bg-sky-100 dark:bg-sky-500/20 text-sky-600 dark:text-sky-400"
-                                label="Enabled Computers"
+                                label="Total PCs"
                                 value={combinedStats.enabled}
                             />
                             <StatBox
@@ -162,7 +162,7 @@ const ComputerUtilization = ({ refreshSignal = 0 }: { refreshSignal?: number }) 
             {showPerCafe && (
                 <Card>
                     <div className="flex items-center justify-between mb-4">
-                        <h4>Per-Cafe Computers</h4>
+                        <h4>PC Status by Cafe</h4>
                     </div>
                     <div className="flex flex-col gap-4">
                         {perCafeStats.map((cafe) => (
@@ -180,7 +180,7 @@ const ComputerUtilization = ({ refreshSignal = 0 }: { refreshSignal?: number }) 
                                     showInfo={false}
                                 />
                                 <div className="grid grid-cols-3 gap-2 mt-3">
-                                    <MiniStat label="Enabled" value={cafe.enabled} />
+                                    <MiniStat label="Total PCs" value={cafe.enabled} />
                                     <MiniStat label="In Use" value={cafe.inUse} />
                                     <MiniStat label="Available" value={cafe.available} />
                                 </div>

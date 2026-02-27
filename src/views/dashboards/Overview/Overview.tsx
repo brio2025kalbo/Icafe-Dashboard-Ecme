@@ -74,11 +74,11 @@ const SalesDashboard = () => {
                                 />
                             </div>
     
-                            <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
+                            {/* <div className="rounded-2xl bg-white dark:bg-gray-900 p-4 shadow-sm">
                                 <RecentOrder data={data.recentOrders} />
-                            </div>
+                            </div> */}
 
-                            <ComputerUtilization refreshSignal={overviewRefreshKey} />
+                            {/* <ComputerUtilization refreshSignal={overviewRefreshKey} /> */}
                         </div>
     
                         {/* RIGHT SIDEBAR */}

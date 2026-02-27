@@ -1,5 +1,6 @@
 import dashboardsNavigationConfig from './dashboards.navigation.config'
 import conceptsNavigationConfig from './concepts.navigation.config'
+import integrationsNavigationConfig from './integrations.navigation.config'
 import {
     NAV_ITEM_TYPE_TITLE,
     NAV_ITEM_TYPE_ITEM,
@@ -11,6 +12,7 @@ import type { NavigationTree } from '@/@types/navigation'
 const navigationConfig: NavigationTree[] = [
 	...dashboardsNavigationConfig,
 	...conceptsNavigationConfig,
+	...integrationsNavigationConfig,
 	/*{
         key: 'groupMenu',
         path: '',
