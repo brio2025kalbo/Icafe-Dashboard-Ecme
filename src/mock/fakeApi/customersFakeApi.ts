@@ -6,6 +6,79 @@ import { mock } from '../MockAdapter'
 import { userDetailData } from '../data/usersData'
 import { customerActivityLog } from '../data/logData'
 
+mock.onPost(`/api/customers`).reply((config) => {
+    const data = JSON.parse(config.data as string)
+    const ids = (userDetailData as any[]).map((u: any) => Number(u.id))
+    const newId = String(Math.max(0, ...ids) + 1)
+    const newCustomer = {
+        id: newId,
+        name: `${data.firstName} ${data.lastName}`,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        img: data.img || '',
+        role: 'user',
+        lastOnline: Math.floor(Date.now() / 1000),
+        status: 'active',
+        personalInfo: {
+            location: `${data.city}, ${data.country}`,
+            address: data.address || '',
+            postcode: data.postcode || '',
+            city: data.city || '',
+            country: data.country || '',
+            dialCode: data.dialCode || '',
+            birthday: '',
+            phoneNumber: data.phoneNumber || '',
+            facebook: '',
+            twitter: '',
+            pinterest: '',
+            linkedIn: '',
+        },
+        orderHistory: [],
+        paymentMethod: [],
+        subscription: [],
+        totalSpending: 0,
+    }
+    ;(userDetailData as any[]).push(newCustomer)
+    return [201, newCustomer]
+})
+
+mock.onPut(new RegExp(`/api/customers/*`)).reply((config) => {
+    const id = config.url?.split('/').pop()
+    const data = JSON.parse(config.data as string)
+    const index = (userDetailData as any[]).findIndex((u: any) => u.id === id)
+    if (index === -1) return [404, {}]
+    const existing = (userDetailData as any[])[index]
+    const updated = {
+        ...existing,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        name: `${data.firstName} ${data.lastName}`,
+        email: data.email,
+        img: data.img,
+        personalInfo: {
+            ...existing.personalInfo,
+            phoneNumber: data.phoneNumber,
+            dialCode: data.dialCode,
+            country: data.country,
+            address: data.address,
+            postcode: data.postcode,
+            city: data.city,
+            location: `${data.city}, ${data.country}`,
+        },
+    }
+    ;(userDetailData as any[])[index] = updated
+    return [200, updated]
+})
+
+mock.onDelete(new RegExp(`/api/customers/*`)).reply((config) => {
+    const id = config.url?.split('/').pop()
+    const index = (userDetailData as any[]).findIndex((u: any) => u.id === id)
+    if (index === -1) return [404, {}]
+    ;(userDetailData as any[]).splice(index, 1)
+    return [200, { id }]
+})
+
 mock.onGet(`/api/customers`).reply((config) => {
     const { pageIndex, pageSize, sort, query } = config.params
 

@@ -30,3 +30,31 @@ export async function apiGetCustomerLog<T, U extends Record<string, unknown>>(
         params,
     })
 }
+
+export async function apiCreateCustomer<T, U extends Record<string, unknown>>(
+    data: U,
+) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: '/api/customers',
+        method: 'post',
+        data,
+    })
+}
+
+export async function apiUpdateCustomer<T, U extends Record<string, unknown>>(
+    id: string,
+    data: U,
+) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/api/customers/${id}`,
+        method: 'put',
+        data,
+    })
+}
+
+export async function apiDeleteCustomer<T>(id: string) {
+    return ApiService.fetchDataWithAxios<T>({
+        url: `/api/customers/${id}`,
+        method: 'delete',
+    })
+}

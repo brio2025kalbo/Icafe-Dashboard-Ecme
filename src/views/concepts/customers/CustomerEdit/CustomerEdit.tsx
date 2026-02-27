@@ -4,9 +4,12 @@ import Button from '@/components/ui/Button'
 import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
-import { apiGetCustomer } from '@/services/CustomersService'
+import {
+    apiGetCustomer,
+    apiUpdateCustomer,
+    apiDeleteCustomer,
+} from '@/services/CustomersService'
 import CustomerForm from '../CustomerForm'
-import sleep from '@/utils/sleep'
 import NoUserFound from '@/assets/svg/NoUserFound'
 import { TbTrash, TbArrowNarrowLeft } from 'react-icons/tb'
 import { useParams, useNavigate } from 'react-router'
@@ -33,14 +36,24 @@ const CustomerEdit = () => {
     const [isSubmiting, setIsSubmiting] = useState(false)
 
     const handleFormSubmit = async (values: CustomerFormSchema) => {
-        console.log('Submitted values', values)
         setIsSubmiting(true)
-        await sleep(800)
-        setIsSubmiting(false)
-        toast.push(<Notification type="success">Changes Saved!</Notification>, {
-            placement: 'top-center',
-        })
-        navigate('/concepts/customers/customer-list')
+        try {
+            await apiUpdateCustomer(id as string, values)
+            toast.push(
+                <Notification type="success">Changes Saved!</Notification>,
+                { placement: 'top-center' },
+            )
+            navigate('/concepts/customers/customer-list')
+        } catch {
+            toast.push(
+                <Notification type="danger">
+                    Failed to save changes!
+                </Notification>,
+                { placement: 'top-center' },
+            )
+        } finally {
+            setIsSubmiting(false)
+        }
     }
 
     const getDefaultValues = () => {
@@ -65,13 +78,23 @@ const CustomerEdit = () => {
         return {}
     }
 
-    const handleConfirmDelete = () => {
-        setDeleteConfirmationOpen(true)
-        toast.push(
-            <Notification type="success">Customer deleted!</Notification>,
-            { placement: 'top-center' },
-        )
-        navigate('/concepts/customers/customer-list')
+    const handleConfirmDelete = async () => {
+        setDeleteConfirmationOpen(false)
+        try {
+            await apiDeleteCustomer(id as string)
+            toast.push(
+                <Notification type="success">Customer deleted!</Notification>,
+                { placement: 'top-center' },
+            )
+            navigate('/concepts/customers/customer-list')
+        } catch {
+            toast.push(
+                <Notification type="danger">
+                    Failed to delete customer!
+                </Notification>,
+                { placement: 'top-center' },
+            )
+        }
     }
 
     const handleDelete = () => {
@@ -138,7 +161,7 @@ const CustomerEdit = () => {
                     <ConfirmDialog
                         isOpen={deleteConfirmationOpen}
                         type="danger"
-                        title="Remove customers"
+                        title="Remove customer"
                         onClose={handleCancel}
                         onRequestClose={handleCancel}
                         onCancel={handleCancel}
@@ -146,7 +169,7 @@ const CustomerEdit = () => {
                     >
                         <p>
                             Are you sure you want to remove this customer? This
-                            action can&apos;t be undo.{' '}
+                            action can&apos;t be undone.
                         </p>
                     </ConfirmDialog>
                 </>

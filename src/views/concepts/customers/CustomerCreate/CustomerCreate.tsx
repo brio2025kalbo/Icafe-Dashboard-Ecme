@@ -5,12 +5,12 @@ import Notification from '@/components/ui/Notification'
 import toast from '@/components/ui/toast'
 import CustomerForm from '../CustomerForm'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
-import sleep from '@/utils/sleep'
+import { apiCreateCustomer } from '@/services/CustomersService'
 import { TbTrash } from 'react-icons/tb'
 import { useNavigate } from 'react-router'
 import type { CustomerFormSchema } from '../CustomerForm'
 
-const CustomerEdit = () => {
+const CustomerCreate = () => {
     const navigate = useNavigate()
 
     const [discardConfirmationOpen, setDiscardConfirmationOpen] =
@@ -18,23 +18,28 @@ const CustomerEdit = () => {
     const [isSubmiting, setIsSubmiting] = useState(false)
 
     const handleFormSubmit = async (values: CustomerFormSchema) => {
-        console.log('Submitted values', values)
         setIsSubmiting(true)
-        await sleep(800)
-        setIsSubmiting(false)
-        toast.push(
-            <Notification type="success">Customer created!</Notification>,
-            { placement: 'top-center' },
-        )
-        navigate('/concepts/customers/customer-list')
+        try {
+            await apiCreateCustomer(values)
+            toast.push(
+                <Notification type="success">Customer created!</Notification>,
+                { placement: 'top-center' },
+            )
+            navigate('/concepts/customers/customer-list')
+        } catch {
+            toast.push(
+                <Notification type="danger">
+                    Failed to create customer!
+                </Notification>,
+                { placement: 'top-center' },
+            )
+        } finally {
+            setIsSubmiting(false)
+        }
     }
 
     const handleConfirmDiscard = () => {
-        setDiscardConfirmationOpen(true)
-        toast.push(
-            <Notification type="success">Customer discardd!</Notification>,
-            { placement: 'top-center' },
-        )
+        setDiscardConfirmationOpen(false)
         navigate('/concepts/customers/customer-list')
     }
 
@@ -101,12 +106,12 @@ const CustomerEdit = () => {
                 onConfirm={handleConfirmDiscard}
             >
                 <p>
-                    Are you sure you want discard this? This action can&apos;t
-                    be undo.{' '}
+                    Are you sure you want to discard this? This action
+                    can&apos;t be undone.
                 </p>
             </ConfirmDialog>
         </>
     )
 }
 
-export default CustomerEdit
+export default CustomerCreate
