@@ -360,14 +360,28 @@ async function initDb() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
 
-        // Ensure theme_mode column exists for existing users table
-        try {
-            await conn.execute("ALTER TABLE users ADD COLUMN theme_mode ENUM('light', 'dark') NOT NULL DEFAULT 'light' AFTER avatar")
-            console.log('[DB] Added theme_mode column to users table')
-        } catch (err) {
-            // Ignore error if column already exists (Error 1060)
-            if (err.code !== 'ER_DUP_FIELDNAME') {
-                console.error('[DB] Error adding theme_mode column:', err.message)
+        // Migrate: add missing columns to users table if they don't exist
+        const userColumns = [
+            { name: 'first_name',   def: "VARCHAR(100) NULL AFTER avatar" },
+            { name: 'last_name',    def: "VARCHAR(100) NULL AFTER first_name" },
+            { name: 'dial_code',    def: "VARCHAR(10)  NULL AFTER last_name" },
+            { name: 'phone_number', def: "VARCHAR(20)  NULL AFTER dial_code" },
+            { name: 'country',      def: "VARCHAR(100) NULL AFTER phone_number" },
+            { name: 'address',      def: "VARCHAR(255) NULL AFTER country" },
+            { name: 'postcode',     def: "VARCHAR(20)  NULL AFTER address" },
+            { name: 'city',         def: "VARCHAR(100) NULL AFTER postcode" },
+            { name: 'theme_mode',   def: "ENUM('light', 'dark') NOT NULL DEFAULT 'light' AFTER city" },
+            { name: 'is_active',    def: "TINYINT(1)   NOT NULL DEFAULT 1 AFTER theme_mode" }
+        ]
+
+        for (const col of userColumns) {
+            try {
+                await conn.execute(`ALTER TABLE users ADD COLUMN ${col.name} ${col.def}`)
+                console.log(`[DB] Added ${col.name} column to users table`)
+            } catch (err) {
+                if (err.code !== 'ER_DUP_FIELDNAME') {
+                    console.error(`[DB] Error adding ${col.name} to users:`, err.message)
+                }
             }
         }
 
