@@ -51,6 +51,7 @@ type XeroMappings = {
     shop_sales_account: string
     refunds_account: string
     center_expenses_account: string
+    center_expenses_fallback_account: string
     bank_account: string
 }
 
@@ -316,6 +317,7 @@ function AccountMappingsCard() {
     const [shopSales, setShopSales] = useState('')
     const [refunds, setRefunds] = useState('')
     const [centerExpensesMappings, setCenterExpensesMappings] = useState<CenterExpensesMapping[]>([{ prefix: '', account: '' }])
+    const [centerExpensesFallback, setCenterExpensesFallback] = useState('')
     const [bankAccount, setBankAccount] = useState('')
     const [saving, setSaving] = useState(false)
 
@@ -336,6 +338,7 @@ function AccountMappingsCard() {
                 const legacy = mappings.center_expenses_account || ''
                 setCenterExpensesMappings([{ prefix: '', account: legacy }])
             }
+            setCenterExpensesFallback(mappings.center_expenses_fallback_account || '')
             setBankAccount(mappings.bank_account || '')
         }
     }, [mappings])
@@ -353,6 +356,7 @@ function AccountMappingsCard() {
                 shop_sales_account: shopSales,
                 refunds_account: refunds,
                 center_expenses_account: JSON.stringify(centerExpensesMappings.filter(m => m.account)),
+                center_expenses_fallback_account: centerExpensesFallback,
                 bank_account: bankAccount,
             })
             mutate('/xero/mappings')
@@ -484,6 +488,20 @@ function AccountMappingsCard() {
                                     >
                                         + Add Row
                                     </Button>
+                                </div>
+                                <div className="mt-3">
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                                        Default / Fallback Account (used when no prefix matches)
+                                    </label>
+                                    <Select
+                                        placeholder="Select fallback account (optional)"
+                                        options={accountOptions}
+                                        value={accountOptions.find((o) => o.value === centerExpensesFallback) || null}
+                                        onChange={(opt) =>
+                                            setCenterExpensesFallback((opt as SelectOption)?.value || '')
+                                        }
+                                        isClearable
+                                    />
                                 </div>
                             </div>
                             <div>

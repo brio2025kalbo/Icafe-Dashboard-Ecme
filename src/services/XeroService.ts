@@ -54,6 +54,7 @@ export async function apiSaveXeroMappings<T>(data: {
     shop_sales_account: string
     refunds_account: string
     center_expenses_account: string
+    center_expenses_fallback_account: string
     bank_account: string
 }) {
     return ApiService.fetchDataWithAxios<T>({
