@@ -3505,19 +3505,24 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
         return [{ prefix: '', account: stored }]
     }
 
-    // Find the best-matching expense account for a given log_details string
+    // Find the best-matching expense account for a given log_details string.
+    // Each mapping may have a 'keywords' field (new) or legacy 'prefix' field.
+    // 'keywords' may contain multiple comma-separated terms; a match occurs when
+    // the expense description contains any of them (case-insensitive).
     function findExpenseAccount(logDetails, expenseMappings, fallbackAccount) {
-        const detail = String(logDetails || '').trim()
-        const detailLower = detail.toLowerCase()
+        const detailLower = String(logDetails || '').trim().toLowerCase()
         for (const m of expenseMappings) {
-            if (m.prefix && detailLower.startsWith(String(m.prefix).trim().toLowerCase())) {
+            const rawKeywords = m.keywords ?? m.prefix ?? ''
+            if (!rawKeywords) continue
+            const terms = String(rawKeywords).split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
+            if (terms.some(term => detailLower.includes(term))) {
                 return m.account || ''
             }
         }
         // Use explicit fallback account if configured
         if (fallbackAccount && fallbackAccount.trim()) return fallbackAccount
-        // Legacy catch-all: first mapping with no prefix, or first entry
-        const catchAll = expenseMappings.find(m => !m.prefix)
+        // Legacy catch-all: first mapping with no keywords/prefix, or first entry
+        const catchAll = expenseMappings.find(m => !(m.keywords ?? m.prefix))
         return catchAll ? catchAll.account || '' : (expenseMappings[0]?.account || '')
     }
 
