@@ -1894,6 +1894,24 @@ async function sendQBReportForCafe(cafe_id, report_date, sent_by) {
 
             if (allRefundItems.length > 0) {
                 console.log(`[QB] Found ${allRefundItems.length} refund item(s) from billing logs (${blPage} page(s))`)
+                // The billingLogs API may deduplicate items with the same log_details,
+                // causing the sum of returned items to be less than the shift's refund
+                // total. Add a remainder entry so journal lines balance correctly.
+                const lastRefundItem = allRefundItems[allRefundItems.length - 1]
+                const refundItemsSum = allRefundItems.reduce((s, i) => s + (Math.abs(parseFloat(i.log_money) || 0)), 0)
+                const totalRefundsAbs = Math.round(Math.abs(totalRefunds) * 100) / 100
+                const refundItemsSumRounded = Math.round(refundItemsSum * 100) / 100
+                if (totalRefundsAbs - refundItemsSumRounded > 0.005) {
+                    const remainder = Math.round((totalRefundsAbs - refundItemsSumRounded) * 100) / 100
+                    console.log(`[QB] Refund items sum ${refundItemsSumRounded} != totalRefunds ${totalRefundsAbs}, adding remainder ${remainder}`)
+                    allRefundItems.push({
+                        // Use negative sign to match the API's sign convention for refunds;
+                        // the journal line builder uses Math.abs() to compute the debit amount.
+                        log_money: String(-remainder),
+                        log_details: String(lastRefundItem.log_details || ''),
+                        log_member_account: '',
+                    })
+                }
             } else {
                 console.log(`[QB] No refund items found in billing logs despite totalRefunds=${totalRefunds.toFixed(2)}`)
             }
@@ -3439,6 +3457,24 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
 
         if (allRefundItems.length > 0) {
             console.log(`[Xero] Found ${allRefundItems.length} refund item(s) from billing logs (${blPage} page(s))`)
+            // The billingLogs API may deduplicate items with the same log_details,
+            // causing the sum of returned items to be less than the shift's refund
+            // total. Add a remainder entry so journal lines balance correctly.
+            const lastRefundItem = allRefundItems[allRefundItems.length - 1]
+            const refundItemsSum = allRefundItems.reduce((s, i) => s + (Math.abs(parseFloat(i.log_money) || 0)), 0)
+            const totalRefundsAbs = Math.round(Math.abs(totalRefunds) * 100) / 100
+            const refundItemsSumRounded = Math.round(refundItemsSum * 100) / 100
+            if (totalRefundsAbs - refundItemsSumRounded > 0.005) {
+                const remainder = Math.round((totalRefundsAbs - refundItemsSumRounded) * 100) / 100
+                console.log(`[Xero] Refund items sum ${refundItemsSumRounded} != totalRefunds ${totalRefundsAbs}, adding remainder ${remainder}`)
+                allRefundItems.push({
+                    // Use negative sign to match the API's sign convention for refunds;
+                    // the journal line builder uses Math.abs() to compute the debit amount.
+                    log_money: String(-remainder),
+                    log_details: String(lastRefundItem.log_details || ''),
+                    log_member_account: '',
+                })
+            }
         } else {
             console.log(`[Xero] No refund items found in billing logs despite totalRefunds=${totalRefunds.toFixed(2)}`)
         }
