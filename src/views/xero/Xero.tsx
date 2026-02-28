@@ -56,7 +56,7 @@ type XeroMappings = {
 }
 
 type CenterExpensesMapping = {
-    prefix: string
+    keywords: string
     account: string
 }
 
@@ -316,7 +316,7 @@ function AccountMappingsCard() {
     const [topups, setTopups] = useState('')
     const [shopSales, setShopSales] = useState('')
     const [refunds, setRefunds] = useState('')
-    const [centerExpensesMappings, setCenterExpensesMappings] = useState<CenterExpensesMapping[]>([{ prefix: '', account: '' }])
+    const [centerExpensesMappings, setCenterExpensesMappings] = useState<CenterExpensesMapping[]>([{ keywords: '', account: '' }])
     const [centerExpensesFallback, setCenterExpensesFallback] = useState('')
     const [bankAccount, setBankAccount] = useState('')
     const [saving, setSaving] = useState(false)
@@ -330,13 +330,18 @@ function AccountMappingsCard() {
             try {
                 const parsed = JSON.parse(mappings.center_expenses_account || '[]')
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    setCenterExpensesMappings(parsed)
+                    // Migrate legacy 'prefix' field to 'keywords'
+                    const migrated = parsed.map((m: Record<string, string>) => ({
+                        keywords: m.keywords ?? m.prefix ?? '',
+                        account: m.account ?? '',
+                    }))
+                    setCenterExpensesMappings(migrated)
                 } else {
-                    setCenterExpensesMappings([{ prefix: '', account: '' }])
+                    setCenterExpensesMappings([{ keywords: '', account: '' }])
                 }
             } catch {
                 const legacy = mappings.center_expenses_account || ''
-                setCenterExpensesMappings([{ prefix: '', account: legacy }])
+                setCenterExpensesMappings([{ keywords: '', account: legacy }])
             }
             setCenterExpensesFallback(mappings.center_expenses_fallback_account || '')
             setBankAccount(mappings.bank_account || '')
@@ -441,16 +446,20 @@ function AccountMappingsCard() {
                                 <label className="block text-sm font-medium mb-1">
                                     Center Expenses Account
                                 </label>
+                                <p id="center-expenses-keywords-hint" className="text-xs text-gray-500 mb-2">
+                                    Enter one or more lookup keywords separated by commas (e.g. <em>403, coffee, wifi</em>). Any expense whose description contains a matching keyword will be mapped to the selected account.
+                                </p>
                                 <div className="flex flex-col gap-2">
                                     {centerExpensesMappings.map((mapping, idx) => (
                                         <div key={idx} className="flex items-center gap-2">
                                             <Input
-                                                className="w-28 shrink-0"
-                                                placeholder="Prefix (e.g. 403)"
-                                                value={mapping.prefix}
+                                                className="w-48 shrink-0"
+                                                placeholder="Keywords (e.g. 403, coffee)"
+                                                aria-describedby="center-expenses-keywords-hint"
+                                                value={mapping.keywords}
                                                 onChange={(e) => {
                                                     const updated = [...centerExpensesMappings]
-                                                    updated[idx] = { ...updated[idx], prefix: (e.target as HTMLInputElement).value }
+                                                    updated[idx] = { ...updated[idx], keywords: (e.target as HTMLInputElement).value }
                                                     setCenterExpensesMappings(updated)
                                                 }}
                                             />
@@ -471,7 +480,7 @@ function AccountMappingsCard() {
                                                 variant="default"
                                                 onClick={() => {
                                                     if (centerExpensesMappings.length === 1) {
-                                                        setCenterExpensesMappings([{ prefix: '', account: '' }])
+                                                        setCenterExpensesMappings([{ keywords: '', account: '' }])
                                                     } else {
                                                         setCenterExpensesMappings(centerExpensesMappings.filter((_, i) => i !== idx))
                                                     }
@@ -484,7 +493,7 @@ function AccountMappingsCard() {
                                     <Button
                                         size="sm"
                                         variant="default"
-                                        onClick={() => setCenterExpensesMappings([...centerExpensesMappings, { prefix: '', account: '' }])}
+                                        onClick={() => setCenterExpensesMappings([...centerExpensesMappings, { keywords: '', account: '' }])}
                                     >
                                         + Add Row
                                     </Button>
