@@ -89,3 +89,32 @@ CREATE TABLE cafes (
     created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
+
+### OPEX Tracker tables
+
+```sql
+CREATE TABLE opex_categories (
+    id         VARCHAR(36)  NOT NULL PRIMARY KEY,
+    name       VARCHAR(255) NOT NULL,
+    color      VARCHAR(20)  NOT NULL DEFAULT '#6366f1',
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE opex_entries (
+    id          VARCHAR(36)   NOT NULL PRIMARY KEY,
+    cafe_id     VARCHAR(36)   NULL,
+    category_id VARCHAR(36)   NULL,
+    amount      DECIMAL(12,2) NOT NULL DEFAULT 0,
+    description VARCHAR(500)  NOT NULL DEFAULT '',
+    entry_date  DATE          NOT NULL,
+    recurrence  ENUM('none','daily','weekly','monthly','yearly') NOT NULL DEFAULT 'none',
+    created_by  VARCHAR(36)   NULL,
+    created_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (cafe_id)     REFERENCES cafes(id)            ON DELETE SET NULL,
+    FOREIGN KEY (category_id) REFERENCES opex_categories(id)  ON DELETE SET NULL,
+    INDEX idx_opex_entries_cafe_id     (cafe_id),
+    INDEX idx_opex_entries_category_id (category_id),
+    INDEX idx_opex_entries_entry_date  (entry_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```

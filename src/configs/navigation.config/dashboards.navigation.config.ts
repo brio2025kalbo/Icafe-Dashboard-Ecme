@@ -31,6 +31,16 @@ const dashboardsNavigationConfig: NavigationTree[] = [
                 authority: [ADMIN, USER],
                 subMenu: [],
             },
+            {
+                key: 'dashboard.opex',
+                path: `${DASHBOARDS_PREFIX_PATH}/opex`,
+                title: 'OPEX Tracker',
+                translateKey: 'nav.dashboard.opex',
+                icon: 'opex',
+                type: NAV_ITEM_TYPE_ITEM,
+                authority: [ADMIN, USER],
+                subMenu: [],
+            },
             /*{
                 key: 'dashboard.project',
                 path: `${DASHBOARDS_PREFIX_PATH}/project`,

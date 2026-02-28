@@ -41,6 +41,15 @@ const dashboardsRoute: Routes = [
             pageBackgroundType: 'plain',
         },
     },
+    {
+        key: 'dashboard.opex',
+        path: `${DASHBOARDS_PREFIX_PATH}/opex`,
+        component: lazy(() => import('@/views/dashboards/OpexDashboard')),
+        authority: [ADMIN, USER],
+        meta: {
+            pageContainerType: 'contained',
+        },
+    },
 ]
 
 export default dashboardsRoute
