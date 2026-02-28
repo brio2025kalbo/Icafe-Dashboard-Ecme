@@ -1804,14 +1804,32 @@ async function sendQBReportForCafe(cafe_id, report_date, sent_by) {
                     )
                     const expItems = reportData?.data?.income?.expense?.items
                     if (Array.isArray(expItems) && expItems.length > 0) {
+                        let itemsSum = 0
                         for (const item of expItems) {
                             allExpenseItems.push({
                                 log_money: String(item.log_money || '0'),
                                 log_details: String(item.log_details || ''),
                                 staff_name: staffName,
                             })
+                            itemsSum += Math.abs(parseFloat(String(item.log_money || '0')) || 0)
                         }
                         console.log(`[QB] Shift ${shiftId}: found ${expItems.length} expense item(s)`)
+                        // The reportData API may deduplicate items with the same log_details,
+                        // causing the sum of returned items to be less than the shift's expense
+                        // total. Add a remainder entry so journal lines balance correctly.
+                        const shiftExpAbs = Math.round(Math.abs(expenses) * 100) / 100
+                        const itemsSumRounded = Math.round(itemsSum * 100) / 100
+                        if (shiftExpAbs - itemsSumRounded > 0.005) {
+                            const remainder = Math.round((shiftExpAbs - itemsSumRounded) * 100) / 100
+                            console.log(`[QB] Shift ${shiftId}: expense items sum ${itemsSumRounded} != shift expenses ${shiftExpAbs}, adding remainder ${remainder}`)
+                            allExpenseItems.push({
+                                // Use negative sign to match the API's sign convention for expenses;
+                                // the journal line builder uses Math.abs() to compute the debit amount.
+                                log_money: String(-remainder),
+                                log_details: String(expItems[expItems.length - 1].log_details || ''),
+                                staff_name: staffName,
+                            })
+                        }
                     }
                 }
             }
@@ -3336,14 +3354,32 @@ async function sendXeroReportForCafe(cafe_id, report_date, sent_by, force = fals
                 )
                 const expItems = reportData?.data?.income?.expense?.items
                 if (Array.isArray(expItems) && expItems.length > 0) {
+                    let itemsSum = 0
                     for (const item of expItems) {
                         allExpenseItems.push({
                             log_money: String(item.log_money || '0'),
                             log_details: String(item.log_details || ''),
                             staff_name: staffName,
                         })
+                        itemsSum += Math.abs(parseFloat(String(item.log_money || '0')) || 0)
                     }
                     console.log(`[Xero] Shift ${shiftId}: found ${expItems.length} expense item(s)`)
+                    // The reportData API may deduplicate items with the same log_details,
+                    // causing the sum of returned items to be less than the shift's expense
+                    // total. Add a remainder entry so journal lines balance correctly.
+                    const shiftExpAbs = Math.round(Math.abs(expenses) * 100) / 100
+                    const itemsSumRounded = Math.round(itemsSum * 100) / 100
+                    if (shiftExpAbs - itemsSumRounded > 0.005) {
+                        const remainder = Math.round((shiftExpAbs - itemsSumRounded) * 100) / 100
+                        console.log(`[Xero] Shift ${shiftId}: expense items sum ${itemsSumRounded} != shift expenses ${shiftExpAbs}, adding remainder ${remainder}`)
+                        allExpenseItems.push({
+                            // Use negative sign to match the API's sign convention for expenses;
+                            // the journal line builder uses Math.abs() to compute the debit amount.
+                            log_money: String(-remainder),
+                            log_details: String(expItems[expItems.length - 1].log_details || ''),
+                            staff_name: staffName,
+                        })
+                    }
                 }
             }
         }
