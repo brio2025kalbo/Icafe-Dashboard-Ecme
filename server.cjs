@@ -361,6 +361,57 @@ async function initDb() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         `)
 
+        // OPEX categories
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS opex_categories (
+                id         VARCHAR(36)  NOT NULL PRIMARY KEY,
+                name       VARCHAR(255) NOT NULL,
+                color      VARCHAR(20)  NOT NULL DEFAULT '#6366f1',
+                created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // OPEX entries
+        await conn.execute(`
+            CREATE TABLE IF NOT EXISTS opex_entries (
+                id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+                cafe_id     VARCHAR(36)  NULL,
+                category_id VARCHAR(36)  NULL,
+                amount      DECIMAL(12,2) NOT NULL DEFAULT 0,
+                description VARCHAR(500) NOT NULL DEFAULT '',
+                entry_date  DATE         NOT NULL,
+                recurrence  ENUM('none','daily','weekly','monthly','yearly') NOT NULL DEFAULT 'none',
+                created_by  VARCHAR(36)  NULL,
+                created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (cafe_id)     REFERENCES cafes(id)           ON DELETE SET NULL,
+                FOREIGN KEY (category_id) REFERENCES opex_categories(id) ON DELETE SET NULL,
+                INDEX idx_opex_entries_cafe_id     (cafe_id),
+                INDEX idx_opex_entries_category_id (category_id),
+                INDEX idx_opex_entries_entry_date  (entry_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `)
+
+        // Seed default OPEX categories if none exist
+        const [[{ opexCnt }]] = await conn.execute('SELECT COUNT(*) AS opexCnt FROM opex_categories')
+        if (opexCnt === 0) {
+            const defaultCategories = [
+                [randomUUID(), 'Electricity',   '#f59e0b'],
+                [randomUUID(), 'Rent',           '#10b981'],
+                [randomUUID(), 'Internet',       '#3b82f6'],
+                [randomUUID(), 'Salaries',       '#8b5cf6'],
+                [randomUUID(), 'Maintenance',    '#ef4444'],
+                [randomUUID(), 'Miscellaneous',  '#6b7280'],
+            ]
+            for (const [id, name, color] of defaultCategories) {
+                await conn.execute(
+                    'INSERT INTO opex_categories (id, name, color) VALUES (?,?,?)',
+                    [id, name, color]
+                )
+            }
+            console.log('[DB] Seeded default OPEX categories')
+        }
+
         // Migrate: add missing columns to users table if they don't exist
         const userColumns = [
             { name: 'first_name',   def: "VARCHAR(100) NULL AFTER avatar" },
@@ -3777,6 +3828,144 @@ app.get('/api/xero/scheduler-logs', requireAuth, requireAdmin, async (req, res) 
     } catch (e) {
         console.error('[Xero] scheduler-logs error:', e.message)
         res.status(500).json({ message: 'Server error' })
+    }
+})
+
+// ── OPEX Categories ───────────────────────────────────────────────────────────
+
+app.get('/api/opex/categories', requireAuth, async (req, res) => {
+    try {
+        const [rows] = await pool.execute('SELECT id, name, color, created_at FROM opex_categories ORDER BY name ASC')
+        res.json({ ok: true, categories: rows })
+    } catch (e) {
+        console.error('[OPEX] categories error:', e.message)
+        res.status(500).json({ ok: false, message: 'Server error' })
+    }
+})
+
+app.post('/api/opex/categories', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { name, color } = req.body || {}
+        if (!name) return res.status(400).json({ ok: false, message: 'name is required' })
+        const id = randomUUID()
+        await pool.execute('INSERT INTO opex_categories (id, name, color) VALUES (?,?,?)', [id, name, color || '#6366f1'])
+        const [[row]] = await pool.execute('SELECT id, name, color, created_at FROM opex_categories WHERE id=?', [id])
+        res.json({ ok: true, category: row })
+    } catch (e) {
+        console.error('[OPEX] create category error:', e.message)
+        res.status(500).json({ ok: false, message: 'Server error' })
+    }
+})
+
+app.put('/api/opex/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { name, color } = req.body || {}
+        if (!name) return res.status(400).json({ ok: false, message: 'name is required' })
+        await pool.execute('UPDATE opex_categories SET name=?, color=? WHERE id=?', [name, color || '#6366f1', req.params.id])
+        const [[row]] = await pool.execute('SELECT id, name, color, created_at FROM opex_categories WHERE id=?', [req.params.id])
+        res.json({ ok: true, category: row })
+    } catch (e) {
+        console.error('[OPEX] update category error:', e.message)
+        res.status(500).json({ ok: false, message: 'Server error' })
+    }
+})
+
+app.delete('/api/opex/categories/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        await pool.execute('DELETE FROM opex_categories WHERE id=?', [req.params.id])
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[OPEX] delete category error:', e.message)
+        res.status(500).json({ ok: false, message: 'Server error' })
+    }
+})
+
+// ── OPEX Entries ──────────────────────────────────────────────────────────────
+
+app.get('/api/opex/entries', requireAuth, async (req, res) => {
+    try {
+        const { cafe_id, date_start, date_end } = req.query
+        let sql = `
+            SELECT e.id, e.cafe_id, e.category_id, e.amount, e.description, e.entry_date, e.recurrence,
+                   e.created_at, e.updated_at,
+                   c.name AS category_name, c.color AS category_color,
+                   cf.name AS cafe_name
+            FROM opex_entries e
+            LEFT JOIN opex_categories c ON c.id = e.category_id
+            LEFT JOIN cafes cf ON cf.id = e.cafe_id
+            WHERE 1=1
+        `
+        const params = []
+        if (cafe_id) { sql += ' AND e.cafe_id = ?'; params.push(cafe_id) }
+        if (date_start) { sql += ' AND e.entry_date >= ?'; params.push(date_start) }
+        if (date_end) { sql += ' AND e.entry_date <= ?'; params.push(date_end) }
+        sql += ' ORDER BY e.entry_date DESC, e.created_at DESC'
+        const [rows] = await pool.execute(sql, params)
+        res.json({ ok: true, entries: rows })
+    } catch (e) {
+        console.error('[OPEX] entries error:', e.message)
+        res.status(500).json({ ok: false, message: 'Server error' })
+    }
+})
+
+app.post('/api/opex/entries', requireAuth, async (req, res) => {
+    try {
+        const { cafe_id, category_id, amount, description, entry_date, recurrence } = req.body || {}
+        if (!amount || !entry_date) return res.status(400).json({ ok: false, message: 'amount and entry_date are required' })
+        const id = randomUUID()
+        await pool.execute(
+            'INSERT INTO opex_entries (id, cafe_id, category_id, amount, description, entry_date, recurrence, created_by) VALUES (?,?,?,?,?,?,?,?)',
+            [id, cafe_id || null, category_id || null, amount, description || '', entry_date, recurrence || 'none', req.user.id]
+        )
+        const [[row]] = await pool.execute(`
+            SELECT e.id, e.cafe_id, e.category_id, e.amount, e.description, e.entry_date, e.recurrence,
+                   e.created_at, e.updated_at,
+                   c.name AS category_name, c.color AS category_color,
+                   cf.name AS cafe_name
+            FROM opex_entries e
+            LEFT JOIN opex_categories c ON c.id = e.category_id
+            LEFT JOIN cafes cf ON cf.id = e.cafe_id
+            WHERE e.id = ?
+        `, [id])
+        res.json({ ok: true, entry: row })
+    } catch (e) {
+        console.error('[OPEX] create entry error:', e.message)
+        res.status(500).json({ ok: false, message: 'Server error' })
+    }
+})
+
+app.put('/api/opex/entries/:id', requireAuth, async (req, res) => {
+    try {
+        const { cafe_id, category_id, amount, description, entry_date, recurrence } = req.body || {}
+        if (!amount || !entry_date) return res.status(400).json({ ok: false, message: 'amount and entry_date are required' })
+        await pool.execute(
+            'UPDATE opex_entries SET cafe_id=?, category_id=?, amount=?, description=?, entry_date=?, recurrence=? WHERE id=?',
+            [cafe_id || null, category_id || null, amount, description || '', entry_date, recurrence || 'none', req.params.id]
+        )
+        const [[row]] = await pool.execute(`
+            SELECT e.id, e.cafe_id, e.category_id, e.amount, e.description, e.entry_date, e.recurrence,
+                   e.created_at, e.updated_at,
+                   c.name AS category_name, c.color AS category_color,
+                   cf.name AS cafe_name
+            FROM opex_entries e
+            LEFT JOIN opex_categories c ON c.id = e.category_id
+            LEFT JOIN cafes cf ON cf.id = e.cafe_id
+            WHERE e.id = ?
+        `, [req.params.id])
+        res.json({ ok: true, entry: row })
+    } catch (e) {
+        console.error('[OPEX] update entry error:', e.message)
+        res.status(500).json({ ok: false, message: 'Server error' })
+    }
+})
+
+app.delete('/api/opex/entries/:id', requireAuth, async (req, res) => {
+    try {
+        await pool.execute('DELETE FROM opex_entries WHERE id=?', [req.params.id])
+        res.json({ ok: true })
+    } catch (e) {
+        console.error('[OPEX] delete entry error:', e.message)
+        res.status(500).json({ ok: false, message: 'Server error' })
     }
 })
 
